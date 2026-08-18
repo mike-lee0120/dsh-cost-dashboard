@@ -648,7 +648,10 @@ window.__ModuleLoader__.load({
 											row.project ?? "",
 											row.modelsTotal > 1 ? ` ${t("multiModel", { n: row.modelsTotal })}` : "")),
 									el("td", null, el("span", { className: "cd-badge cd-mono" }, row.model ?? "?")),
-									el("td", { className: "cd-num", title: `in ${row.input} / cr ${row.cacheRead} / out ${row.output}` }, fmtTokens(row.input + row.cacheRead + row.cacheWrite + row.output)),
+									el("td", { className: "cd-num" },
+										el("div", null, fmtTokens(row.input + row.cacheRead + row.cacheWrite + row.output)),
+										el("div", { className: "cd-dim", style: { fontSize: 10.5, whiteSpace: "nowrap" } },
+											`${t("legend.input")} ${fmtTokens(row.input)} · ${t("legend.cacheRead")} ${fmtTokens(row.cacheRead)} · ${t("legend.output")} ${fmtTokens(row.output)}`)),
 									el("td", { className: "cd-num" }, fmtCost(currency, inCurrency(row.costByCurrency, currency, fx))),
 									el("td", { className: "cd-dim", style: { whiteSpace: "nowrap" } }, fmtWhen(row.lastTime || row.createdAt))))))))),
 				el("details", { className: "cd-details", open: editorOpen, onToggle: (event) => {

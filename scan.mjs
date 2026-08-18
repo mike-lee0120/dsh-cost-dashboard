@@ -336,10 +336,12 @@ export function aggregate(records, pricing) {
 			if (entry === undefined && model != null) unpriced.add(model);
 			const rowBuckets = zeroBuckets();
 			const rowCost = {};
+			let rowLastTime = 0;
 			for (const sample of samples) {
 				addBuckets(totals, sample);
 				addBuckets(modelRow.buckets, sample);
 				addBuckets(rowBuckets, sample);
+				if (sample.t > rowLastTime) rowLastTime = sample.t;
 				const cost = entry === undefined ? null : sampleCostOf(entry, sample);
 				addCost(totalCost, cost);
 				addCost(modelRow.cost, cost);
@@ -359,7 +361,7 @@ export function aggregate(records, pricing) {
 				project: record.cwd === null ? null : record.cwd.split('/').filter(Boolean).pop() ?? record.cwd,
 				cwd: record.cwd,
 				createdAt: record.createdAt,
-				lastTime: record.lastTime,
+				lastTime: rowLastTime || record.lastTime || record.createdAt,
 				turns: record.turns,
 				provider,
 				model,
