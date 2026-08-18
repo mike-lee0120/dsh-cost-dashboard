@@ -51,6 +51,9 @@ window.__ModuleLoader__.load({
 			"chart.title": "每日趋势",
 			"chart.window": "近 {n} 天",
 			"chart.max": "峰值 {v}",
+			"range.week": "近一周",
+			"range.month": "近一月",
+			"range.quarter": "近三月",
 			"legend.input": "输入",
 			"legend.cacheRead": "缓存命中",
 			"legend.cacheWrite": "缓存写入",
@@ -114,6 +117,9 @@ window.__ModuleLoader__.load({
 			"chart.title": "Daily trend",
 			"chart.window": "last {n} days",
 			"chart.max": "peak {v}",
+			"range.week": "1W",
+			"range.month": "1M",
+			"range.quarter": "3M",
 			"legend.input": "input",
 			"legend.cacheRead": "cache read",
 			"legend.cacheWrite": "cache write",
@@ -455,6 +461,7 @@ window.__ModuleLoader__.load({
 			const [loading, setLoading] = useState(true);
 			const [mode, setMode] = useState("cost");
 			const [currency, setCurrency] = useState("USD");
+			const [range, setRange] = useState("7d");
 			const [editorOpen, setEditorOpen] = useState(false);
 			const [editorText, setEditorText] = useState("");
 			const [editorStatus, setEditorStatus] = useState(null);
@@ -515,7 +522,8 @@ window.__ModuleLoader__.load({
 			}, [editorText, load, t]);
 
 			const summary = data?.summary;
-			const chartDays = useMemo(() => (data?.byDay ?? []).slice(-30), [data]);
+			const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+			const chartDays = useMemo(() => (data?.byDay ?? []).slice(-rangeDays), [data, rangeDays]);
 			const totalTokens = summary
 				? summary.totals.input + summary.totals.cacheRead + summary.totals.cacheWrite + summary.totals.output
 				: 0;
@@ -550,9 +558,14 @@ window.__ModuleLoader__.load({
 						el(Card, { label: t("card.sessions"), value: String(summary.sessions), hint: t("card.sessionsHint", { n: summary.activeSessions }) })),
 					data.unpricedModels.length > 0 ? el("div", { className: "cd-notice" }, t("unpriced", { models: data.unpricedModels.join(", ") })) : null,
 					el("div", { className: "cd-chartCard" },
-						el("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 } },
+						el("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 } },
 							el("span", { className: "cd-sectionTitle" }, t("chart.title")),
-							el("span", { className: "cd-dim", style: { fontSize: 11 } }, t("chart.window", { n: chartDays.length }))),
+							el("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+								el("div", { className: "cd-toggle" },
+									el("button", { className: range === "7d" ? "cd-on" : "", onClick: () => setRange("7d") }, t("range.week")),
+									el("button", { className: range === "30d" ? "cd-on" : "", onClick: () => setRange("30d") }, t("range.month")),
+									el("button", { className: range === "90d" ? "cd-on" : "", onClick: () => setRange("90d") }, t("range.quarter"))),
+								el("span", { className: "cd-dim", style: { fontSize: 11 } }, t("chart.window", { n: chartDays.length })))),
 						mode === "tokens"
 							? el("div", { className: "cd-chart" },
 								el(TokensChart, { days: chartDays, t }),
