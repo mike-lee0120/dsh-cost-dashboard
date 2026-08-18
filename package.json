@@ -1,0 +1,53 @@
+{
+  "name": "dsh-cost-dashboard",
+  "version": "0.1.0",
+  "description": "Cost dashboard for DeepSeek Harness - model spend, tokens and cache usage across all sessions (settings section). DSH 费用看板：汇总全部会话的模型输入/输出/缓存 token 用量并按价格表计费。",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "scan.mjs",
+    "pricing.mjs",
+    "routes.mjs",
+    "client.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "cost",
+    "dashboard",
+    "usage",
+    "statistics"
+  ]
+}
