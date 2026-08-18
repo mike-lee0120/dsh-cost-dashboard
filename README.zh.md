@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-装在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）里的费用看板插件：汇总本机**全部会话**的模型输入 / 输出 / 缓存命中 token 用量，按价格表（含 DeepSeek 峰谷分时计价）计算费用，在 **设置 → 费用看板** 中以看板形式展示。功能定位类似 cc-switch 的使用统计。
+装在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）里的费用看板插件：汇总本机**全部会话**的模型输入 / 输出 / 缓存命中 token 用量，按价格表（含 DeepSeek 峰谷分时计价）计算费用，在 **设置 → 费用看板** 中以看板形式展示。
 
 ## 你会得到
 
