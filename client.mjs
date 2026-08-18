@@ -191,16 +191,7 @@ window.__ModuleLoader__.load({
 .cd-chartRow{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .cd-chartLabel{color:var(--dsw-alias-label-secondary);font-size:11.5px;font-weight:500}
 .cd-chartPeak{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
-.cd-chartCols{display:flex;gap:6px;align-items:stretch}
-.cd-col{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px}
-.cd-stack{position:relative;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;width:100%;max-width:22px;height:120px;background:var(--dsw-alias-fill-l1,#f0f0f0);background-image:repeating-linear-gradient(to top,var(--dsw-alias-border-l2,#e5e5e5) 0 1px,transparent 1px 25%);border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden;transition:border-color .12s}
-.cd-col:hover .cd-stack{border-color:var(--dsw-alias-label-tertiary)}
-.cd-stackSm{height:72px}
-.cd-seg{min-height:0;width:100%;transition:filter .12s}
-.cd-stack .cd-seg:last-child{border-radius:4px 4px 0 0}
-.cd-col:hover .cd-seg{filter:brightness(1.07)}
-.cd-colLabel{font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums}
-.cd-colLabelEmpty{visibility:hidden}
+.cd-echart{width:100%}
 .cd-details{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:0}
 .cd-details>summary{cursor:pointer;padding:10px 12px;color:var(--dsw-alias-label-secondary);font-size:12.5px;list-style:none}
 .cd-details>summary::before{content:"▸ ";color:var(--dsw-alias-label-tertiary)}
@@ -239,17 +230,8 @@ window.__ModuleLoader__.load({
 		}
 
 		const COLORS = { input: "#4e83ff", cacheRead: "#23a55a", cacheWrite: "#f5a623", output: "#9d7bd8" };
-		const SEGMENT_TOPS = { "#4e83ff": "#7ba6ff", "#23a55a": "#4bcf8e", "#f5a623": "#ffc05c", "#9d7bd8": "#c0abee" };
 		const CURRENCY_SYMBOLS = { CNY: "¥", USD: "$" };
 		const DEFAULT_CNY_PER_USD = 6.79;
-
-		/** Vertical gradient so each bar reads as a slim, rounded "pill" segment. */
-		function segmentStyle(base, heightPercent) {
-			return {
-				height: `${heightPercent}%`,
-				background: `linear-gradient(180deg, ${SEGMENT_TOPS[base] ?? base}, ${base})`,
-			};
-		}
 
 		function fmtTokens(value) {
 			if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
@@ -285,81 +267,178 @@ window.__ModuleLoader__.load({
 			return usd + cny / cnyPerUsd;
 		}
 
-		/** CSS-bar mini chart with tooltips; labels below the bars never stretch. */
-		function MiniBars({ days, series, max, heightClass, labels }) {
-			const labelStep = Math.max(1, Math.ceil(days.length / 10));
-			return el("div", { className: "cd-chartCols" },
-				days.map((day, index) => {
-					const segments = [];
-					for (const item of series) {
-						const amount = item.value(day);
-						if (amount > 0) segments.push({ key: item.key, color: item.color, amount });
-					}
-					const total = segments.reduce((sum, segment) => sum + segment.amount, 0);
-					const tooltip = [day.date, ...segments.map((segment) => `${labels[segment.key]} ${fmtTokens(segment.amount)}`), `Σ ${fmtTokens(total)}`].join("\n");
-					return el("div", { key: index, className: "cd-col" },
-						el("div", { className: `cd-stack${heightClass ? ` ${heightClass}` : ""}`, title: tooltip },
-							segments.map((segment) => el("div", {
-								key: segment.key,
-								className: "cd-seg",
-								style: segmentStyle(segment.color, Math.max((segment.amount / max) * 100, 1.5)),
-							}))),
-						el("div", { className: index % labelStep === 0 ? "cd-colLabel" : "cd-colLabel cd-colLabelEmpty" }, day.date.slice(5)));
-				}));
+		let echartsPromise = null;
+		/** Load the vendored ECharts bundle once from the host route. */
+		function ensureEcharts() {
+			if (typeof window !== "undefined" && window.echarts !== undefined) return Promise.resolve(window.echarts);
+			if (echartsPromise !== null) return echartsPromise;
+			echartsPromise = new Promise((resolve, reject) => {
+				const script = document.createElement("script");
+				script.src = "/cost-dashboard/vendor/echarts";
+				script.onload = () => resolve(window.echarts);
+				script.onerror = () => {
+					echartsPromise = null;
+					reject(new Error("ECharts failed to load"));
+				};
+				document.head.appendChild(script);
+			});
+			return echartsPromise;
+		}
+
+		/** Theme-aware axis/tooltip colors read from the page CSS variables. */
+		function chartTheme() {
+			if (typeof document === "undefined" || typeof getComputedStyle !== "function" || document.documentElement === null) {
+				return { text: "#8a8f98", grid: "#e5e7eb", menu: "rgba(17,24,39,0.92)", label: "#f3f4f6" };
+			}
+			const style = getComputedStyle(document.documentElement);
+			const read = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+			return {
+				text: read("--dsw-alias-label-tertiary", "#8a8f98"),
+				grid: read("--dsw-alias-border-l2", "#e5e7eb"),
+				menu: read("--dsw-specific-menu", "rgba(17,24,39,0.92)"),
+				label: read("--dsw-alias-label-primary", "#f3f4f6"),
+			};
+		}
+
+		/** Base line-chart option shared by every daily-trend chart. */
+		function baseLineOption(days, theme, formatValue) {
+			return {
+				animationDuration: 320,
+				grid: { left: 4, right: 8, top: 10, bottom: 0, containLabel: true },
+				tooltip: {
+					trigger: "axis",
+					valueFormatter: formatValue,
+					backgroundColor: theme.menu,
+					borderColor: theme.grid,
+					borderWidth: 1,
+					textStyle: { color: theme.label, fontSize: 12 },
+					axisPointer: { lineStyle: { color: theme.grid } },
+				},
+				xAxis: {
+					type: "category",
+					data: days.map((day) => day.date.slice(5)),
+					boundaryGap: false,
+					axisLine: { lineStyle: { color: theme.grid } },
+					axisTick: { show: false },
+					axisLabel: { color: theme.text, fontSize: 10, hideOverlap: true },
+				},
+				yAxis: {
+					type: "value",
+					splitNumber: 3,
+					splitLine: { lineStyle: { color: theme.grid, type: [3, 4] } },
+					axisLabel: { color: theme.text, fontSize: 10, formatter: formatValue },
+				},
+			};
+		}
+
+		/** Smooth line with a soft vertical gradient area underneath. */
+		function areaSeries(name, data, color) {
+			return {
+				name,
+				type: "line",
+				data,
+				smooth: 0.35,
+				symbol: "circle",
+				symbolSize: 5,
+				showSymbol: false,
+				lineStyle: { width: 2, color },
+				itemStyle: { color },
+				emphasis: { focus: "series" },
+				areaStyle: {
+					color: {
+						type: "linear",
+						x: 0, y: 0, x2: 0, y2: 1,
+						colorStops: [
+							{ offset: 0, color: `${color}3d` },
+							{ offset: 1, color: `${color}05` },
+						],
+					},
+				},
+			};
+		}
+
+		/** Plain smooth line without area fill. */
+		function lineSeries(name, data, color) {
+			return {
+				name,
+				type: "line",
+				data,
+				smooth: 0.35,
+				symbol: "circle",
+				symbolSize: 5,
+				showSymbol: false,
+				lineStyle: { width: 2, color },
+				itemStyle: { color },
+				emphasis: { focus: "series" },
+			};
+		}
+
+		/** React host for one ECharts instance; lazy-init, resize, dispose. */
+		function EChart({ option, height }) {
+			const hostRef = useRef(null);
+			const chartRef = useRef(null);
+			const optionRef = useRef(option);
+			optionRef.current = option;
+			useEffect(() => {
+				let cancelled = false;
+				ensureEcharts().then((echarts) => {
+					if (cancelled || hostRef.current === null) return;
+					const chart = echarts.init(hostRef.current);
+					chartRef.current = chart;
+					chart.setOption(optionRef.current);
+				}).catch(() => {});
+				const onResize = () => chartRef.current?.resize();
+				window.addEventListener("resize", onResize);
+				return () => {
+					cancelled = true;
+					window.removeEventListener("resize", onResize);
+					chartRef.current?.dispose();
+					chartRef.current = null;
+				};
+			}, []);
+			useEffect(() => {
+				chartRef.current?.setOption(optionRef.current, { notMerge: true });
+			}, [option]);
+			return el("div", { ref: hostRef, className: "cd-echart", style: { height } });
 		}
 
 		/**
-		 * Daily tokens chart: non-cache buckets (input / cache write / output)
-		 * and cache read each get their own scale, because cache read usually
-		 * dwarfs the other buckets and would otherwise hide them.
+		 * Daily tokens trend: two line charts - non-cache buckets
+		 * (input / cache write / output) and cache read on its own scale.
 		 */
 		function TokensChart({ days, t }) {
 			if (days.length === 0) return null;
-			const activeMax = Math.max(1, ...days.map((day) => day.input + day.cacheWrite + day.output));
-			const cacheMax = Math.max(1, ...days.map((day) => day.cacheRead));
-			const activeSeries = [
-				{ key: "input", color: COLORS.input, value: (day) => day.input },
-				{ key: "cacheWrite", color: COLORS.cacheWrite, value: (day) => day.cacheWrite },
-				{ key: "output", color: COLORS.output, value: (day) => day.output },
-			];
-			const cacheSeries = [
-				{ key: "cacheRead", color: COLORS.cacheRead, value: (day) => day.cacheRead },
-			];
-			const labels = {
-				input: t("legend.input"),
-				cacheWrite: t("legend.cacheWrite"),
-				output: t("legend.output"),
-				cacheRead: t("legend.cacheRead"),
+			const theme = chartTheme();
+			const formatTokens = (value) => fmtTokens(value);
+			const activeOption = {
+				...baseLineOption(days, theme, formatTokens),
+				series: [
+					lineSeries(t("legend.input"), days.map((day) => day.input), COLORS.input),
+					lineSeries(t("legend.cacheWrite"), days.map((day) => day.cacheWrite), COLORS.cacheWrite),
+					lineSeries(t("legend.output"), days.map((day) => day.output), COLORS.output),
+				],
+			};
+			const cacheOption = {
+				...baseLineOption(days, theme, formatTokens),
+				series: [areaSeries(t("legend.cacheRead"), days.map((day) => day.cacheRead), COLORS.cacheRead)],
 			};
 			return el("div", { className: "cd-chart" },
-				el("div", { className: "cd-chartRow" },
-					el("span", { className: "cd-chartLabel" }, t("legend.nonCache")),
-					el("span", { className: "cd-chartPeak" }, t("chart.max", { v: fmtTokens(activeMax) }))),
-				el(MiniBars, { days, series: activeSeries, max: activeMax, labels }),
-				el("div", { className: "cd-chartRow" },
-					el("span", { className: "cd-chartLabel" }, t("legend.cacheRead")),
-					el("span", { className: "cd-chartPeak" }, t("chart.max", { v: fmtTokens(cacheMax) }))),
-				el(MiniBars, { days, series: cacheSeries, max: cacheMax, labels, heightClass: "cd-stackSm" }));
+				el("div", { className: "cd-chartRow" }, el("span", { className: "cd-chartLabel" }, t("legend.nonCache"))),
+				el(EChart, { option: activeOption, height: 132 }),
+				el("div", { className: "cd-chartRow" }, el("span", { className: "cd-chartLabel" }, t("legend.cacheRead"))),
+				el(EChart, { option: cacheOption, height: 96 }));
 		}
 
-		/** Single-series daily cost chart in the selected currency. */
+		/** Daily cost trend as one area line in the selected currency. */
 		function CostChart({ days, currency, cnyPerUsd, t }) {
 			if (days.length === 0) return null;
-			const values = days.map((day) => inCurrency(day.costByCurrency, currency, cnyPerUsd));
-			const max = Math.max(0.000001, ...values);
-			const labelStep = Math.max(1, Math.ceil(days.length / 10));
-			return el("div", { className: "cd-chart" },
-				el("div", { className: "cd-chartRow" },
-					el("span", { className: "cd-chartLabel" }, CURRENCY_SYMBOLS[currency] ?? currency),
-					el("span", { className: "cd-chartPeak" }, t("chart.max", { v: fmtCost(currency, max) }))),
-				el("div", { className: "cd-chartCols" },
-					days.map((day, index) => {
-						const amount = inCurrency(day.costByCurrency, currency, cnyPerUsd);
-						return el("div", { key: index, className: "cd-col" },
-							el("div", { className: "cd-stack", title: `${day.date} · ${fmtCost(currency, amount)}` },
-								amount > 0 ? el("div", { className: "cd-seg", style: segmentStyle(COLORS.input, Math.max((amount / max) * 100, 1.5)) }) : null),
-							el("div", { className: index % labelStep === 0 ? "cd-colLabel" : "cd-colLabel cd-colLabelEmpty" }, day.date.slice(5)));
-					})));
+			const theme = chartTheme();
+			const formatCost = (value) => fmtCost(currency, value);
+			const option = {
+				...baseLineOption(days, theme, formatCost),
+				series: [areaSeries(CURRENCY_SYMBOLS[currency] ?? currency, days.map((day) => inCurrency(day.costByCurrency, currency, cnyPerUsd)), COLORS.input)],
+			};
+			return el(EChart, { option, height: 176 });
 		}
 
 		function Card({ label, value, hint }) {

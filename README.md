@@ -9,7 +9,7 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 - **Two entry points**: Settings -> Cost Dashboard (the settings nav icons are hardcoded by the dsh settings shell, so plugins cannot customize them), plus a **sidebar footer icon button** (data-grid style) that opens the same dashboard in an anchored panel
 - **Currency switch**: displays in **USD by default** with a one-click CNY toggle; converts between CNY- and USD-listed prices at the configurable `fx.cnyPerUsd` rate (default 6.79)
 - **Summary cards**: total cost, today's cost, input (cache-miss) / cache-read / cache-write / output tokens, session count
-- **Daily trend chart**: tokens (four stacked buckets) and cost (**single unified-currency** series), last 30 days
+- **Daily trend chart**: ECharts smooth line charts (gradient area fill and hover tooltips); cost mode is a single unified-currency series, tokens mode splits into "input / cache write / output" and "cache read" charts on independent scales, last 30 days
 - **By-model table**: tokens, cost, share per model
 - **By-session table**: sorted by cost, **one row per session-model pair** (a session that used several models appears on several rows, each with its own model, tokens and cost), with title, project directory, subagent badge
 - **Pricing editor**: edit the pricing JSON (including the FX rate) in-page; saves to `~/.dsh/cost-dashboard.json`, effective immediately
@@ -103,7 +103,7 @@ Fields: `fx.cnyPerUsd` (USD->CNY, default 6.79, used for cross-currency display)
 
 ## Development
 
-Plain `.mjs`, zero build step (host uses only Node builtins; the client is a hand-written module-loader bundle). Restart `dsh web` and refresh the page after any change.
+Plain `.mjs`, zero build step (host uses only Node builtins; the client is a hand-written module-loader bundle; charts use the vendored ECharts 5 build, Apache-2.0, served locally from `/cost-dashboard/vendor/echarts` - no CDN). Restart `dsh web` and refresh the page after any change.
 
 ## Security
 

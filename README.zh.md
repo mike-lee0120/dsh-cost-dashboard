@@ -9,7 +9,7 @@
 - **两个入口**：设置 → 费用看板（设置导航图标由 dsh 设置外壳按内置 id 硬编码，无法由插件自定义）；侧边栏底部另有**看板图标按钮**（数据网格样式），点击在面板中打开同一看板
 - **币种切换**：默认按 **USD** 显示，可一键切换 CNY；按可配置汇率（`fx.cnyPerUsd`，默认 6.79）把人民币标价与美元标价换算到同一币种
 - **汇总卡片**：总费用、今日费用、输入（未命中缓存）/ 缓存命中 / 缓存写入 / 输出 tokens、会话数
-- **每日趋势图**：Tokens（四桶堆叠柱）与费用（**统一币种**单序列）两种模式，近 30 天
+- **每日趋势图**：ECharts 平滑折线图（带渐变面积与悬浮 tooltip）；费用模式为单序列（统一币种），Tokens 模式拆为"输入/缓存写入/输出"与"缓存命中"两张图（各自刻度），近 30 天
 - **按模型汇总表**：各模型的 token 用量、费用、占比
 - **按会话汇总表**：按费用排序，**每个会话按模型拆行**（一个会话用了多个模型就多行，各自显示模型、tokens 与费用），含标题、项目目录、子代理标记
 - **价格配置**：页面上直接编辑价格表 JSON（含汇率），保存到 `~/.dsh/cost-dashboard.json`，立即生效
@@ -106,7 +106,7 @@ dsh plugin --profile web add dsh-cost-dashboard
 
 ## 开发
 
-纯 `.mjs` 零构建（host 侧仅 Node 内置模块，client 侧手写 module-loader bundle）。改动 host（`index.mjs`/`scan.mjs`/`pricing.mjs`/`routes.mjs`）或 client（`client.mjs`）后重启 `dsh web` 并刷新页面生效。
+纯 `.mjs` 零构建（host 侧仅 Node 内置模块，client 侧手写 module-loader bundle；图表用仓库内 vendor 的 ECharts 5，Apache-2.0，由 `/cost-dashboard/vendor/echarts` 本地提供，无 CDN 依赖）。改动 host（`index.mjs`/`scan.mjs`/`pricing.mjs`/`routes.mjs`）或 client（`client.mjs`）后重启 `dsh web` 并刷新页面生效。
 
 ## 安全
 

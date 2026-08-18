@@ -17,6 +17,7 @@
     "routes.mjs",
     "client.mjs",
     "cordis.patch.yml",
+    "vendor/echarts.min.js",
     "README.md",
     "README.zh.md"
   ],

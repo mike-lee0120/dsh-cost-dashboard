@@ -8,6 +8,7 @@
  * Route shape follows the dshmarket plugin's market routes; POST is guarded by
  * an Origin==Host check (helpers adapted from dshmarket, MIT).
  */
+import { readFileSync } from 'node:fs';
 import { dshHome, scanAll, aggregate, zstdSupported } from './scan.mjs';
 import {
 	BUILTIN_PRICING,
@@ -78,7 +79,44 @@ export function mountRoutes(host) {
 		return inflight;
 	};
 
+	// Vendored Apache-2.0 ECharts build served from this package's directory.
+	let echartsBuffer = null;
+	let echartsError = null;
+	const readEcharts = () => {
+		if (echartsBuffer !== null) return echartsBuffer;
+		if (echartsError !== null) throw echartsError;
+		try {
+			echartsBuffer = readFileSync(new URL('./vendor/echarts.min.js', import.meta.url));
+		} catch (error) {
+			echartsError = error;
+			throw error;
+		}
+		return echartsBuffer;
+	};
+
 	const disposers = [
+		host.webServer.register({
+			kind: 'exact',
+			path: '/cost-dashboard/vendor/echarts',
+			handler: (request, response) => {
+				if (request.method !== 'GET') {
+					response.writeHead(405, { allow: 'GET' });
+					response.end();
+					return;
+				}
+				try {
+					const buffer = readEcharts();
+					response.writeHead(200, {
+						'cache-control': 'public, max-age=3600',
+						'content-type': 'application/javascript; charset=utf-8',
+						'content-length': buffer.length,
+					});
+					response.end(buffer);
+				} catch (error) {
+					sendJson(response, 404, { error: `echarts bundle unavailable: ${error instanceof Error ? error.message : String(error)}` });
+				}
+			},
+		}),
 		host.webServer.register({
 			kind: 'exact',
 			path: '/cost-dashboard/stats',
