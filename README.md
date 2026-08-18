@@ -46,16 +46,40 @@ Requires dsh `0.1.0-rc.7`+ and Node >= 22.15 (the `node:zlib` zstd API the host 
 
 ## Pricing
 
-Built-in (per 1M tokens, checked 2026-08-18):
+Built-in pricing for 21 mainstream models (per 1M tokens, checked 2026-08-18; "hit" = cache-read rate, "write" = cache-write rate, defaults to the cache-miss input rate when unset):
 
-| Model | Currency | Input (miss) | Input (hit) | Output | Peak |
+**CNY-listed models**
+
+| Model | Input (miss) | Input (hit) | Output | Notes |
+|---|---|---|---|---|
+| deepseek-v4-pro | 4.5 | 0.15 | 13.5 | peak doubles: 9 / 0.30 / 27 (09-12, 14-18) |
+| deepseek-v4-flash | 1.5 | 0.05 | 4.5 | peak doubles: 3 / 0.10 / 9.0 |
+| kimi-k3 | 20 | 2 | 100 | Moonshot China list price |
+| qwen3.8-max | 12 | 1.5 | 36 | Alibaba Bailian China price |
+| doubao-seed-2.1-pro | 6 | - | 30 | Volcengine Ark |
+| hy3 | 1 | 0.25 | 4 | Tencent Hunyuan |
+| minimax-m3 | 3.15 | 0.63 | 12.6 | ≤512K input, half-price list rate |
+
+**USD-listed models**
+
+| Model | Input (miss) | Input (hit) | Cache write | Output | Notes |
 |---|---|---|---|---|---|
-| deepseek-v4-pro | CNY | 4.5 | 0.15 | 13.5 | 9 / 0.30 / 27 (09-12, 14-18) |
-| deepseek-v4-flash | CNY | 1.5 | 0.05 | 4.5 | 3 / 0.10 / 9.0 |
-| glm-5.3 | USD | 1.40 | - | 4.40 | - |
+| gpt-5.6-sol | 5 | 0.5 | - | 30 | |
+| gpt-5.6-terra | 2 | 0.2 | - | 12 | |
+| gpt-5.6-luna | 0.20 | 0.02 | - | 1.20 | |
+| gpt-5.5 | 5 | 0.5 | - | 30 | |
+| gpt-5.4 | 2.5 | 0.25 | - | 15 | |
+| gpt-5.1 | 1.25 | 0.125 | - | 10 | |
+| claude-opus-5 | 5 | 0.5 | 6.25 | 25 | |
+| claude-sonnet-5 | 2 | 0.2 | 2.5 | 10 | temporary rate through 2026-08-31, then $3/$15 |
+| claude-fable-5 | 10 | 1 | 12.5 | 50 | |
+| gemini-3.6-flash | 1.5 | - | - | 7.5 | |
+| gemini-3.5-flash-lite | 0.3 | - | - | 2.5 | |
+| grok-4.6 | 2 | - | - | 6 | |
+| grok-4.6-fast | 4 | 1 | - | 12 | |
+| glm-5.3 | 1.40 | - | - | 4.40 | Z.ai list price; override for the volcengine route |
 
 - DeepSeek V4 peak/off-peak pricing effective 2026-08-17 (off-peak is half of peak; peak hours 09:00-12:00 and 14:00-18:00). Every usage record is timestamped, so the dashboard prices each sample by the host-local clock hour.
-- glm-5.3 uses Z.ai list pricing; override it for the volcengine route.
 - Unpriced models count tokens only.
 
 ### Overrides

@@ -22,7 +22,20 @@ export const DEFAULT_PEAK_HOURS = [[9, 12], [14, 18]];
  * Sources (checked 2026-08-18):
  * - DeepSeek V4 official peak/off-peak pricing, effective 2026-08-17
  *   (off-peak is half of peak; peak hours 09:00-12:00 and 14:00-18:00).
- * - GLM-5.3 Z.ai list price ($1.40 in / $4.40 out);火山方舟渠道价格可能不同，请自行覆盖。
+ * - GLM-5.3 Z.ai list price;火山方舟渠道价格可能不同，请自行覆盖。
+ * - OpenAI GPT-5.6/5.5/5.4/5.1: benchlm.ai OpenAI API pricing (Aug 2026),
+ *   cached-input rates at 10% of input.
+ * - Anthropic Claude 5 series: benchlm.ai Anthropic API pricing (Aug 2026);
+ *   cache read 10% of input, cache write 1.25x input. Sonnet 5 runs a
+ *   temporary $2/$10 rate through 2026-08-31, then $3/$15.
+ * - Google Gemini 3.6 Flash / 3.5 Flash-Lite: 量子位 via BAAI Hub (2026-07-24).
+ * - xAI Grok 4.6: Cursor release note via kie.ai (2026-08-13), $2/$6 with a
+ *   fast variant at 2x ($4/$12, cache read $1).
+ * - Kimi K3: 界面新闻 (Moonshot 中国标价, ¥20/¥2/¥100).
+ * - Qwen3.8-Max: ai-indeed.com 国内标价 (¥12/¥1.5/¥36).
+ * - Tencent Hy3: 新京报 (2026-07-06, ¥1/¥0.25/¥4).
+ * - Doubao Seed 2.1 Pro: 新浪科技 (¥6/¥30).
+ * - MiniMax-M3: MiniMax 开放平台按量计费页 (≤512K 输入五折刊例价).
  */
 export const BUILTIN_PRICING = {
 	models: {
@@ -46,6 +59,113 @@ export const BUILTIN_PRICING = {
 			currency: 'USD',
 			input: 1.4,
 			output: 4.4,
+		},
+		'gpt-5.6-sol': {
+			currency: 'USD',
+			input: 5,
+			inputHit: 0.5,
+			output: 30,
+		},
+		'gpt-5.6-terra': {
+			currency: 'USD',
+			input: 2,
+			inputHit: 0.2,
+			output: 12,
+		},
+		'gpt-5.6-luna': {
+			currency: 'USD',
+			input: 0.2,
+			inputHit: 0.02,
+			output: 1.2,
+		},
+		'gpt-5.5': {
+			currency: 'USD',
+			input: 5,
+			inputHit: 0.5,
+			output: 30,
+		},
+		'gpt-5.4': {
+			currency: 'USD',
+			input: 2.5,
+			inputHit: 0.25,
+			output: 15,
+		},
+		'gpt-5.1': {
+			currency: 'USD',
+			input: 1.25,
+			inputHit: 0.125,
+			output: 10,
+		},
+		'claude-opus-5': {
+			currency: 'USD',
+			input: 5,
+			inputHit: 0.5,
+			cacheWrite: 6.25,
+			output: 25,
+		},
+		'claude-sonnet-5': {
+			currency: 'USD',
+			input: 2,
+			inputHit: 0.2,
+			cacheWrite: 2.5,
+			output: 10,
+		},
+		'claude-fable-5': {
+			currency: 'USD',
+			input: 10,
+			inputHit: 1,
+			cacheWrite: 12.5,
+			output: 50,
+		},
+		'gemini-3.6-flash': {
+			currency: 'USD',
+			input: 1.5,
+			output: 7.5,
+		},
+		'gemini-3.5-flash-lite': {
+			currency: 'USD',
+			input: 0.3,
+			output: 2.5,
+		},
+		'grok-4.6': {
+			currency: 'USD',
+			input: 2,
+			output: 6,
+		},
+		'grok-4.6-fast': {
+			currency: 'USD',
+			input: 4,
+			inputHit: 1,
+			output: 12,
+		},
+		'kimi-k3': {
+			currency: 'CNY',
+			input: 20,
+			inputHit: 2,
+			output: 100,
+		},
+		'qwen3.8-max': {
+			currency: 'CNY',
+			input: 12,
+			inputHit: 1.5,
+			output: 36,
+		},
+		'hy3': {
+			currency: 'CNY',
+			input: 1,
+			inputHit: 0.25,
+			output: 4,
+		},
+		'doubao-seed-2.1-pro': {
+			currency: 'CNY',
+			input: 6,
+			output: 30,
+		},
+		'minimax-m3': {
+			currency: 'CNY',
+			input: 3.15,
+			inputHit: 0.63,
+			output: 12.6,
 		},
 	},
 };
