@@ -187,6 +187,7 @@ window.__ModuleLoader__.load({
 .cd-table{width:100%;border-collapse:collapse;font-size:12.5px}
 .cd-table th{color:var(--dsw-alias-label-tertiary);font-weight:500;text-align:left;padding:7px 10px;white-space:nowrap;font-size:11.5px}
 .cd-table td{padding:7px 10px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);vertical-align:top}
+.cd-sessionHeader td{background:var(--dsw-alias-fill-l1);font-weight:500}
 .cd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .cd-mono{font-family:var(--dsw-font-mono)}
 .cd-dim{color:var(--dsw-alias-label-tertiary)}
@@ -551,6 +552,26 @@ window.__ModuleLoader__.load({
 			const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : 90;
 			const rangeLabel = range === "7d" ? t("range.week") : range === "30d" ? t("range.month") : t("range.quarter");
 			const chartDays = useMemo(() => padDays(data?.byDay ?? [], rangeDays), [data, rangeDays]);
+			const sessionGroups = useMemo(() => {
+				const groups = new Map();
+				for (const row of data?.bySession ?? []) {
+					let group = groups.get(row.sessionId);
+					if (group === undefined) {
+						group = {
+							sessionId: row.sessionId,
+							title: row.title,
+							project: row.project,
+							isSubagent: row.isSubagent,
+							modelsTotal: row.modelsTotal,
+							createdAt: row.createdAt,
+							models: [],
+						};
+						groups.set(row.sessionId, group);
+					}
+					group.models.push(row);
+				}
+				return [...groups.values()];
+			}, [data]);
 			const totalTokens = summary
 				? summary.totals.input + summary.totals.cacheRead + summary.totals.cacheWrite + summary.totals.output
 				: 0;
@@ -643,20 +664,25 @@ window.__ModuleLoader__.load({
 									el("th", { className: "cd-num" }, t("col.output")),
 									el("th", { className: "cd-num" }, t("col.cost")),
 									el("th", null, t("col.time")))),
-								el("tbody", null, data.bySession.map((row, index) => el("tr", { key: `${row.sessionId}-${row.provider}-${row.model}-${index}` },
-									el("td", null,
-										el("div", { style: { maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, row.title ?? t("untitled")),
-										el("div", { className: "cd-dim", style: { fontSize: 11 } },
-											row.isSubagent ? el("span", { className: "cd-badge" }, t("subagent")) : null,
-											row.project ?? "",
-											row.modelsTotal > 1 ? ` ${t("multiModel", { n: row.modelsTotal })}` : "")),
-									el("td", null, el("span", { className: "cd-badge cd-mono" }, row.model ?? "?")),
-									el("td", { className: "cd-num", title: String(row.input) }, fmtTokens(row.input)),
-									el("td", { className: "cd-num", title: String(row.cacheRead) }, fmtTokens(row.cacheRead)),
-									el("td", { className: "cd-num", title: String(row.cacheWrite) }, fmtTokens(row.cacheWrite)),
-									el("td", { className: "cd-num", title: String(row.output) }, fmtTokens(row.output)),
-									el("td", { className: "cd-num" }, fmtCost(currency, inCurrency(row.costByCurrency, currency, fx))),
-									el("td", { className: "cd-dim", style: { whiteSpace: "nowrap" } }, fmtWhen(row.lastTime || row.createdAt))))))))),
+								el("tbody", null, sessionGroups.flatMap((group) => [
+									el("tr", { key: `g-${group.sessionId}`, className: "cd-sessionHeader" },
+										el("td", { colSpan: 2 },
+											el("div", { style: { maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, group.title ?? t("untitled")),
+											el("div", { className: "cd-dim", style: { fontSize: 11 } },
+												group.isSubagent ? el("span", { className: "cd-badge" }, t("subagent")) : null,
+												group.project ?? "",
+												group.modelsTotal > 1 ? ` ${t("multiModel", { n: group.modelsTotal })}` : "")),
+										el("td", { colSpan: 6 })),
+									...group.models.map((row) => el("tr", { key: `${row.sessionId}-${row.provider}-${row.model}` },
+										el("td", { className: "cd-dim", style: { textAlign: "right" } }, "↳"),
+										el("td", null, el("span", { className: "cd-badge cd-mono" }, row.model ?? "?")),
+										el("td", { className: "cd-num", title: String(row.input) }, fmtTokens(row.input)),
+										el("td", { className: "cd-num", title: String(row.cacheRead) }, fmtTokens(row.cacheRead)),
+										el("td", { className: "cd-num", title: String(row.cacheWrite) }, fmtTokens(row.cacheWrite)),
+										el("td", { className: "cd-num", title: String(row.output) }, fmtTokens(row.output)),
+										el("td", { className: "cd-num" }, fmtCost(currency, inCurrency(row.costByCurrency, currency, fx))),
+										el("td", { className: "cd-dim", style: { whiteSpace: "nowrap" } }, fmtWhen(row.lastTime || row.createdAt)))),
+								])))))),
 				el("details", { className: "cd-details", open: editorOpen, onToggle: (event) => {
 					setEditorOpen(event.currentTarget.open);
 					if (event.currentTarget.open && editorText === "") loadPricing().catch((caught) => setEditorStatus({ kind: "error", text: String(caught) }));
