@@ -187,16 +187,18 @@ window.__ModuleLoader__.load({
 .cd-badge{display:inline-block;background:var(--dsw-alias-fill-l2);color:var(--dsw-alias-label-secondary);border-radius:5px;padding:0 6px;font-size:10.5px;line-height:17px;margin-right:4px;white-space:nowrap}
 .cd-share{position:relative;background:var(--dsw-alias-fill-l1);border-radius:4px;height:6px;min-width:60px;overflow:hidden}
 .cd-shareFill{position:absolute;inset:0 auto 0 0;background:#4e83ff66}
-.cd-chart{display:flex;flex-direction:column;gap:10px}
-.cd-chartRow{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.cd-chartLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
-.cd-chartCols{display:flex;gap:3px;align-items:stretch}
-.cd-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-.cd-stack{display:flex;flex-direction:column;justify-content:flex-end;height:120px;background:var(--dsw-alias-fill-l1,#f0f0f0);border-radius:4px;overflow:hidden;border:1px solid transparent}
-.cd-col:hover .cd-stack{border-color:var(--dsw-alias-border-l2)}
+.cd-chart{display:flex;flex-direction:column;gap:12px}
+.cd-chartRow{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.cd-chartLabel{color:var(--dsw-alias-label-secondary);font-size:11.5px;font-weight:500}
+.cd-chartPeak{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
+.cd-chartCols{display:flex;gap:6px;align-items:stretch}
+.cd-col{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px}
+.cd-stack{position:relative;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;width:100%;max-width:22px;height:120px;background:var(--dsw-alias-fill-l1,#f0f0f0);background-image:repeating-linear-gradient(to top,var(--dsw-alias-border-l2,#e5e5e5) 0 1px,transparent 1px 25%);border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden;transition:border-color .12s}
+.cd-col:hover .cd-stack{border-color:var(--dsw-alias-label-tertiary)}
 .cd-stackSm{height:72px}
-.cd-seg{min-height:0;transition:opacity .12s}
-.cd-col:hover .cd-seg{opacity:.85}
+.cd-seg{min-height:0;width:100%;transition:filter .12s}
+.cd-stack .cd-seg:last-child{border-radius:4px 4px 0 0}
+.cd-col:hover .cd-seg{filter:brightness(1.07)}
 .cd-colLabel{font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums}
 .cd-colLabelEmpty{visibility:hidden}
 .cd-details{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:0}
@@ -237,8 +239,17 @@ window.__ModuleLoader__.load({
 		}
 
 		const COLORS = { input: "#4e83ff", cacheRead: "#23a55a", cacheWrite: "#f5a623", output: "#9d7bd8" };
+		const SEGMENT_TOPS = { "#4e83ff": "#7ba6ff", "#23a55a": "#4bcf8e", "#f5a623": "#ffc05c", "#9d7bd8": "#c0abee" };
 		const CURRENCY_SYMBOLS = { CNY: "¥", USD: "$" };
 		const DEFAULT_CNY_PER_USD = 6.79;
+
+		/** Vertical gradient so each bar reads as a slim, rounded "pill" segment. */
+		function segmentStyle(base, heightPercent) {
+			return {
+				height: `${heightPercent}%`,
+				background: `linear-gradient(180deg, ${SEGMENT_TOPS[base] ?? base}, ${base})`,
+			};
+		}
 
 		function fmtTokens(value) {
 			if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
@@ -291,7 +302,7 @@ window.__ModuleLoader__.load({
 							segments.map((segment) => el("div", {
 								key: segment.key,
 								className: "cd-seg",
-								style: { height: `${Math.max((segment.amount / max) * 100, 1.5)}%`, background: segment.color },
+								style: segmentStyle(segment.color, Math.max((segment.amount / max) * 100, 1.5)),
 							}))),
 						el("div", { className: index % labelStep === 0 ? "cd-colLabel" : "cd-colLabel cd-colLabelEmpty" }, day.date.slice(5)));
 				}));
@@ -322,10 +333,12 @@ window.__ModuleLoader__.load({
 			};
 			return el("div", { className: "cd-chart" },
 				el("div", { className: "cd-chartRow" },
-					el("span", { className: "cd-chartLabel" }, `${t("legend.nonCache")} · ${t("chart.max", { v: fmtTokens(activeMax) })}`)),
+					el("span", { className: "cd-chartLabel" }, t("legend.nonCache")),
+					el("span", { className: "cd-chartPeak" }, t("chart.max", { v: fmtTokens(activeMax) }))),
 				el(MiniBars, { days, series: activeSeries, max: activeMax, labels }),
 				el("div", { className: "cd-chartRow" },
-					el("span", { className: "cd-chartLabel" }, `${t("legend.cacheRead")} · ${t("chart.max", { v: fmtTokens(cacheMax) })}`)),
+					el("span", { className: "cd-chartLabel" }, t("legend.cacheRead")),
+					el("span", { className: "cd-chartPeak" }, t("chart.max", { v: fmtTokens(cacheMax) }))),
 				el(MiniBars, { days, series: cacheSeries, max: cacheMax, labels, heightClass: "cd-stackSm" }));
 		}
 
@@ -337,13 +350,14 @@ window.__ModuleLoader__.load({
 			const labelStep = Math.max(1, Math.ceil(days.length / 10));
 			return el("div", { className: "cd-chart" },
 				el("div", { className: "cd-chartRow" },
-					el("span", { className: "cd-chartLabel" }, `${CURRENCY_SYMBOLS[currency] ?? currency} · ${t("chart.max", { v: fmtCost(currency, max) })}`)),
+					el("span", { className: "cd-chartLabel" }, CURRENCY_SYMBOLS[currency] ?? currency),
+					el("span", { className: "cd-chartPeak" }, t("chart.max", { v: fmtCost(currency, max) }))),
 				el("div", { className: "cd-chartCols" },
 					days.map((day, index) => {
 						const amount = inCurrency(day.costByCurrency, currency, cnyPerUsd);
 						return el("div", { key: index, className: "cd-col" },
 							el("div", { className: "cd-stack", title: `${day.date} · ${fmtCost(currency, amount)}` },
-								amount > 0 ? el("div", { className: "cd-seg", style: { height: `${Math.max((amount / max) * 100, 1.5)}%`, background: COLORS.input } }) : null),
+								amount > 0 ? el("div", { className: "cd-seg", style: segmentStyle(COLORS.input, Math.max((amount / max) * 100, 1.5)) }) : null),
 							el("div", { className: index % labelStep === 0 ? "cd-colLabel" : "cd-colLabel cd-colLabelEmpty" }, day.date.slice(5)));
 					})));
 		}
