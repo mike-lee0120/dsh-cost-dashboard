@@ -41,7 +41,8 @@ window.__ModuleLoader__.load({
 			"card.today": "今日费用",
 			"card.input": "输入 tokens",
 			"card.inputHint": "未命中缓存",
-			"card.cacheRead": "缓存命中 tokens",
+			"card.cacheRead": "缓存命中率",
+			"card.cacheReadHint": "命中 {hit} / 未命中 {miss}",
 			"card.cacheWrite": "缓存写入 tokens",
 			"card.output": "输出 tokens",
 			"card.sessions": "会话数",
@@ -54,13 +55,14 @@ window.__ModuleLoader__.load({
 			"legend.cacheRead": "缓存命中",
 			"legend.cacheWrite": "缓存写入",
 			"legend.output": "输出",
+			"legend.nonCache": "输入/缓存写入/输出",
 			"table.models": "按模型汇总",
 			"table.sessions": "按会话汇总",
 			"table.sessionsHint": "显示前 {shown} / 共 {total} 条（按费用排序）",
 			"col.model": "模型",
 			"col.provider": "供应商",
 			"col.input": "输入",
-			"col.cacheRead": "缓存命中",
+			"col.cacheRead": "缓存命中率",
 			"col.cacheWrite": "缓存写入",
 			"col.output": "输出",
 			"col.cost": "费用",
@@ -102,7 +104,8 @@ window.__ModuleLoader__.load({
 			"card.today": "Today",
 			"card.input": "Input tokens",
 			"card.inputHint": "cache miss",
-			"card.cacheRead": "Cache read tokens",
+			"card.cacheRead": "Cache hit rate",
+			"card.cacheReadHint": "hit {hit} / miss {miss}",
 			"card.cacheWrite": "Cache write tokens",
 			"card.output": "Output tokens",
 			"card.sessions": "Sessions",
@@ -115,13 +118,14 @@ window.__ModuleLoader__.load({
 			"legend.cacheRead": "cache read",
 			"legend.cacheWrite": "cache write",
 			"legend.output": "output",
+			"legend.nonCache": "input / cache write / output",
 			"table.models": "By model",
 			"table.sessions": "By session",
 			"table.sessionsHint": "showing {shown} of {total} rows (by cost)",
 			"col.model": "Model",
 			"col.provider": "Provider",
 			"col.input": "Input",
-			"col.cacheRead": "Cache read",
+			"col.cacheRead": "Cache hit",
 			"col.cacheWrite": "Cache write",
 			"col.output": "Output",
 			"col.cost": "Cost",
@@ -183,10 +187,18 @@ window.__ModuleLoader__.load({
 .cd-badge{display:inline-block;background:var(--dsw-alias-fill-l2);color:var(--dsw-alias-label-secondary);border-radius:5px;padding:0 6px;font-size:10.5px;line-height:17px;margin-right:4px;white-space:nowrap}
 .cd-share{position:relative;background:var(--dsw-alias-fill-l1);border-radius:4px;height:6px;min-width:60px;overflow:hidden}
 .cd-shareFill{position:absolute;inset:0 auto 0 0;background:#4e83ff66}
-.cd-chart{display:flex;flex-direction:column;gap:6px}
-.cd-chartRow{display:flex;align-items:center;gap:8px}
-.cd-chartLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;min-width:64px;font-variant-numeric:tabular-nums}
-.cd-svg{width:100%;height:120px;display:block}
+.cd-chart{display:flex;flex-direction:column;gap:10px}
+.cd-chartRow{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.cd-chartLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
+.cd-chartCols{display:flex;gap:3px;align-items:stretch}
+.cd-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.cd-stack{display:flex;flex-direction:column;justify-content:flex-end;height:120px;background:var(--dsw-alias-fill-l1,#f0f0f0);border-radius:4px;overflow:hidden;border:1px solid transparent}
+.cd-col:hover .cd-stack{border-color:var(--dsw-alias-border-l2)}
+.cd-stackSm{height:72px}
+.cd-seg{min-height:0;transition:opacity .12s}
+.cd-col:hover .cd-seg{opacity:.85}
+.cd-colLabel{font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums}
+.cd-colLabelEmpty{visibility:hidden}
 .cd-details{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:0}
 .cd-details>summary{cursor:pointer;padding:10px 12px;color:var(--dsw-alias-label-secondary);font-size:12.5px;list-style:none}
 .cd-details>summary::before{content:"▸ ";color:var(--dsw-alias-label-tertiary)}
@@ -262,83 +274,78 @@ window.__ModuleLoader__.load({
 			return usd + cny / cnyPerUsd;
 		}
 
-		/** Stacked daily tokens chart (viewBox-scaled SVG, no dependencies). */
+		/** CSS-bar mini chart with tooltips; labels below the bars never stretch. */
+		function MiniBars({ days, series, max, heightClass, labels }) {
+			const labelStep = Math.max(1, Math.ceil(days.length / 10));
+			return el("div", { className: "cd-chartCols" },
+				days.map((day, index) => {
+					const segments = [];
+					for (const item of series) {
+						const amount = item.value(day);
+						if (amount > 0) segments.push({ key: item.key, color: item.color, amount });
+					}
+					const total = segments.reduce((sum, segment) => sum + segment.amount, 0);
+					const tooltip = [day.date, ...segments.map((segment) => `${labels[segment.key]} ${fmtTokens(segment.amount)}`), `Σ ${fmtTokens(total)}`].join("\n");
+					return el("div", { key: index, className: "cd-col" },
+						el("div", { className: `cd-stack${heightClass ? ` ${heightClass}` : ""}`, title: tooltip },
+							segments.map((segment) => el("div", {
+								key: segment.key,
+								className: "cd-seg",
+								style: { height: `${Math.max((segment.amount / max) * 100, 1.5)}%`, background: segment.color },
+							}))),
+						el("div", { className: index % labelStep === 0 ? "cd-colLabel" : "cd-colLabel cd-colLabelEmpty" }, day.date.slice(5)));
+				}));
+		}
+
+		/**
+		 * Daily tokens chart: non-cache buckets (input / cache write / output)
+		 * and cache read each get their own scale, because cache read usually
+		 * dwarfs the other buckets and would otherwise hide them.
+		 */
 		function TokensChart({ days, t }) {
 			if (days.length === 0) return null;
-			const slot = Math.max(10, Math.min(26, Math.floor(900 / days.length)));
-			const width = days.length * slot;
-			const height = 120;
-			const padTop = 6;
-			const max = Math.max(1, ...days.map((day) => day.input + day.cacheRead + day.cacheWrite + day.output));
-			const scale = (value) => (height - padTop) * (value / max);
-			const bars = [];
-			days.forEach((day, index) => {
-				const x = index * slot;
-				const parts = [
-					["input", day.input, COLORS.input],
-					["cacheRead", day.cacheRead, COLORS.cacheRead],
-					["cacheWrite", day.cacheWrite, COLORS.cacheWrite],
-					["output", day.output, COLORS.output],
-				];
-				let y = height;
-				for (const [key, value, color] of parts) {
-					if (value <= 0) continue;
-					const barHeight = scale(value);
-					y -= barHeight;
-					bars.push(el("rect", {
-						key: `${index}-${key}`,
-						x: x + 1.5,
-						y,
-						width: slot - 3,
-						height: Math.max(0, barHeight),
-						fill: color,
-						rx: key === "output" || y + barHeight >= height ? 1.5 : 0,
-					}));
-				}
-				const total = day.input + day.cacheRead + day.cacheWrite + day.output;
-				bars.push(el("title", { key: `t-${index}` }, `${day.date} · ${t("legend.input")} ${fmtTokens(day.input)} · ${t("legend.cacheRead")} ${fmtTokens(day.cacheRead)} · ${t("legend.cacheWrite")} ${fmtTokens(day.cacheWrite)} · ${t("legend.output")} ${fmtTokens(day.output)} · Σ ${fmtTokens(total)}`));
-				bars.push(el("rect", { key: `h-${index}`, x: x, y: 0, width: slot, height, fill: "transparent" }, el("title", {}, day.date)));
-			});
-			const labelStep = Math.max(1, Math.ceil(days.length / 12));
-			return el("svg", { className: "cd-svg", viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none" },
-				el("line", { x1: 0, y1: height - 0.5, x2: width, y2: height - 0.5, stroke: "var(--dsw-alias-border-l2, #ddd)" }),
-				bars,
-				days.map((day, index) => index % labelStep === 0
-					? el("text", { key: `x-${index}`, x: index * slot + slot / 2, y: height - 2, fontSize: 8, fill: "var(--dsw-alias-label-tertiary, #999)", textAnchor: "middle" }, day.date.slice(5))
-					: null));
+			const activeMax = Math.max(1, ...days.map((day) => day.input + day.cacheWrite + day.output));
+			const cacheMax = Math.max(1, ...days.map((day) => day.cacheRead));
+			const activeSeries = [
+				{ key: "input", color: COLORS.input, value: (day) => day.input },
+				{ key: "cacheWrite", color: COLORS.cacheWrite, value: (day) => day.cacheWrite },
+				{ key: "output", color: COLORS.output, value: (day) => day.output },
+			];
+			const cacheSeries = [
+				{ key: "cacheRead", color: COLORS.cacheRead, value: (day) => day.cacheRead },
+			];
+			const labels = {
+				input: t("legend.input"),
+				cacheWrite: t("legend.cacheWrite"),
+				output: t("legend.output"),
+				cacheRead: t("legend.cacheRead"),
+			};
+			return el("div", { className: "cd-chart" },
+				el("div", { className: "cd-chartRow" },
+					el("span", { className: "cd-chartLabel" }, `${t("legend.nonCache")} · ${t("chart.max", { v: fmtTokens(activeMax) })}`)),
+				el(MiniBars, { days, series: activeSeries, max: activeMax, labels }),
+				el("div", { className: "cd-chartRow" },
+					el("span", { className: "cd-chartLabel" }, `${t("legend.cacheRead")} · ${t("chart.max", { v: fmtTokens(cacheMax) })}`)),
+				el(MiniBars, { days, series: cacheSeries, max: cacheMax, labels, heightClass: "cd-stackSm" }));
 		}
 
 		/** Single-series daily cost chart in the selected currency. */
 		function CostChart({ days, currency, cnyPerUsd, t }) {
 			if (days.length === 0) return null;
-			const slot = Math.max(10, Math.min(26, Math.floor(900 / days.length)));
-			const width = days.length * slot;
-			const height = 96;
-			const max = Math.max(0.000001, ...days.map((day) => inCurrency(day.costByCurrency, currency, cnyPerUsd)));
-			const bars = days.map((day, index) => {
-				const amount = inCurrency(day.costByCurrency, currency, cnyPerUsd);
-				if (amount <= 0) return null;
-				const barHeight = (height - 4) * (amount / max);
-				return el("rect", {
-					key: index,
-					x: index * slot + 1.5,
-					y: height - barHeight,
-					width: slot - 3,
-					height: barHeight,
-					fill: COLORS.input,
-					rx: 1.5,
-				}, el("title", {}, `${day.date} · ${fmtCost(currency, amount)}`));
-			});
-			const labelStep = Math.max(1, Math.ceil(days.length / 12));
+			const values = days.map((day) => inCurrency(day.costByCurrency, currency, cnyPerUsd));
+			const max = Math.max(0.000001, ...values);
+			const labelStep = Math.max(1, Math.ceil(days.length / 10));
 			return el("div", { className: "cd-chart" },
 				el("div", { className: "cd-chartRow" },
 					el("span", { className: "cd-chartLabel" }, `${CURRENCY_SYMBOLS[currency] ?? currency} · ${t("chart.max", { v: fmtCost(currency, max) })}`)),
-				el("svg", { className: "cd-svg", viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", style: { height: 96 } },
-					el("line", { x1: 0, y1: height - 0.5, x2: width, y2: height - 0.5, stroke: "var(--dsw-alias-border-l2, #ddd)" }),
-					bars,
-					days.map((day, index) => index % labelStep === 0
-						? el("text", { key: `x-${index}`, x: index * slot + slot / 2, y: height - 2, fontSize: 8, fill: "var(--dsw-alias-label-tertiary, #999)", textAnchor: "middle" }, day.date.slice(5))
-						: null)));
+				el("div", { className: "cd-chartCols" },
+					days.map((day, index) => {
+						const amount = inCurrency(day.costByCurrency, currency, cnyPerUsd);
+						return el("div", { key: index, className: "cd-col" },
+							el("div", { className: "cd-stack", title: `${day.date} · ${fmtCost(currency, amount)}` },
+								amount > 0 ? el("div", { className: "cd-seg", style: { height: `${Math.max((amount / max) * 100, 1.5)}%`, background: COLORS.input } }) : null),
+							el("div", { className: index % labelStep === 0 ? "cd-colLabel" : "cd-colLabel cd-colLabelEmpty" }, day.date.slice(5)));
+					})));
 		}
 
 		function Card({ label, value, hint }) {
@@ -421,6 +428,8 @@ window.__ModuleLoader__.load({
 				: 0;
 			const totalCost = summary ? inCurrency(summary.costByCurrency, currency, fx) : 0;
 			const todayCost = summary ? inCurrency(summary.todayCostByCurrency, currency, fx) : 0;
+			const promptTokens = summary ? summary.totals.input + summary.totals.cacheRead : 0;
+			const hitRate = promptTokens > 0 ? (summary.totals.cacheRead / promptTokens) * 100 : 0;
 
 			if (loading && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-empty" }, t("loading")));
 			if (error !== null && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-error" }, t("error.load", { msg: error })));
@@ -442,7 +451,7 @@ window.__ModuleLoader__.load({
 					el("div", { className: "cd-cards" },
 						el(Card, { label: t("card.totalCost"), value: fmtCost(currency, totalCost), hint: `${t("card.today")}: ${fmtCost(currency, todayCost)}` }),
 						el(Card, { label: t("card.input"), value: fmtTokens(summary.totals.input), hint: t("card.inputHint") }),
-						el(Card, { label: t("card.cacheRead"), value: fmtTokens(summary.totals.cacheRead) }),
+						el(Card, { label: t("card.cacheRead"), value: `${hitRate.toFixed(1)}%`, hint: t("card.cacheReadHint", { hit: fmtTokens(summary.totals.cacheRead), miss: fmtTokens(summary.totals.input) }) }),
 						el(Card, { label: t("card.cacheWrite"), value: fmtTokens(summary.totals.cacheWrite) }),
 						el(Card, { label: t("card.output"), value: fmtTokens(summary.totals.output) }),
 						el(Card, { label: t("card.sessions"), value: String(summary.sessions), hint: t("card.sessionsHint", { n: summary.activeSessions }) })),
@@ -474,12 +483,14 @@ window.__ModuleLoader__.load({
 								el("tbody", null, data.byModel.map((row) => {
 									const tokens = row.input + row.cacheRead + row.cacheWrite + row.output;
 									const share = totalTokens > 0 ? tokens / totalTokens : 0;
+									const rowPrompt = row.input + row.cacheRead;
+									const rowHitRate = rowPrompt > 0 ? (row.cacheRead / rowPrompt) * 100 : null;
 									return el("tr", { key: `${row.provider}/${row.model}` },
 										el("td", null,
 											el("span", { className: "cd-mono" }, row.model ?? "—"),
 											el("div", { className: "cd-dim", style: { fontSize: 11 } }, row.provider ?? "")),
 										el("td", { className: "cd-num", title: String(row.input) }, fmtTokens(row.input)),
-										el("td", { className: "cd-num", title: String(row.cacheRead) }, fmtTokens(row.cacheRead)),
+										el("td", { className: "cd-num", title: `hit ${fmtTokens(row.cacheRead)} / miss ${fmtTokens(row.input)}` }, rowHitRate === null ? "—" : `${rowHitRate.toFixed(1)}%`),
 										el("td", { className: "cd-num", title: String(row.output) }, fmtTokens(row.output)),
 										el("td", { className: "cd-num" }, row.priced ? fmtCost(currency, inCurrency(row.costByCurrency, currency, fx)) : "—"),
 										el("td", null, el("div", { className: "cd-share", title: `${(share * 100).toFixed(1)}%` }, el("div", { className: "cd-shareFill", style: { width: `${Math.round(share * 100)}%` } }))));
