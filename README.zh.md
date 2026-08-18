@@ -6,11 +6,13 @@
 
 ## 你会得到
 
-- **汇总卡片**：总费用（多币种分别显示）、今日费用、输入（未命中缓存）/ 缓存命中 / 缓存写入 / 输出 tokens、会话数
-- **每日趋势图**：Tokens（四桶堆叠柱）与费用（按币种分图）两种模式，近 30 天
+- **两个入口**：设置 → 费用看板（设置导航图标由 dsh 设置外壳按内置 id 硬编码，无法由插件自定义）；侧边栏底部另有**看板图标按钮**（数据网格样式），点击在面板中打开同一看板
+- **币种切换**：默认按 **USD** 显示，可一键切换 CNY；按可配置汇率（`fx.cnyPerUsd`，默认 6.79）把人民币标价与美元标价换算到同一币种
+- **汇总卡片**：总费用、今日费用、输入（未命中缓存）/ 缓存命中 / 缓存写入 / 输出 tokens、会话数
+- **每日趋势图**：Tokens（四桶堆叠柱）与费用（**统一币种**单序列）两种模式，近 30 天
 - **按模型汇总表**：各模型的 token 用量、费用、占比
-- **按会话汇总表**：按费用排序的前 100 个会话，含标题、项目目录、使用的模型、子代理标记
-- **价格配置**：页面上直接编辑价格表 JSON，保存到 `~/.dsh/cost-dashboard.json`，立即生效
+- **按会话汇总表**：按费用排序，**每个会话按模型拆行**（一个会话用了多个模型就多行，各自显示模型、tokens 与费用），含标题、项目目录、子代理标记
+- **价格配置**：页面上直接编辑价格表 JSON（含汇率），保存到 `~/.dsh/cost-dashboard.json`，立即生效
 - **自动刷新**：看板打开期间每 15 秒拉取一次；宿主侧只增量重扫有变化的日志文件（mtime + size 校验）
 
 ## 安装
@@ -87,10 +89,11 @@ dsh plugin --profile web add dsh-cost-dashboard
 
 ### 覆盖价格
 
-看板底部 **价格配置** 编辑器直接保存 `~/.dsh/cost-dashboard.json`（按模型名整条覆盖内置价）：
+看板底部 **价格配置** 编辑器直接保存 `~/.dsh/cost-dashboard.json`（按模型名整条覆盖内置价；汇率按 `fx` 覆盖）：
 
 ```json
 {
+  "fx": { "cnyPerUsd": 6.79 },
   "models": {
     "glm-5.3": { "currency": "USD", "input": 1.4, "inputHit": 0.14, "output": 4.4 },
     "my-local-model": { "currency": "CNY", "input": 2, "output": 6,
@@ -99,7 +102,7 @@ dsh plugin --profile web add dsh-cost-dashboard
 }
 ```
 
-字段：`currency`（CNY|USD）、`input`（未命中输入价）、`inputHit`（缓存命中价，缺省=input）、`cacheWrite`（缓存写价，缺省=input）、`output`；可选 `peak` 与 `peakHours`（宿主本地时间，命中峰时用 peak 费率，peak 未写的字段回落平价）。多币种费用分别累计，不做汇率换算。
+字段：`fx.cnyPerUsd`（美元兑人民币，默认 6.79，用于跨币种换算显示）；每个模型 `currency`（CNY|USD）、`input`（未命中输入价）、`inputHit`（缓存命中价，缺省=input）、`cacheWrite`（缓存写价，缺省=input）、`output`；可选 `peak` 与 `peakHours`（宿主本地时间，命中峰时用 peak 费率，peak 未写的字段回落平价）。看板默认以 USD 显示，CNY 标价按汇率折算；切换 CNY 时 USD 标价按汇率折算。
 
 ## 开发
 

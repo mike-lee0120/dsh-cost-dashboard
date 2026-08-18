@@ -11,6 +11,7 @@
 import { dshHome, scanAll, aggregate, zstdSupported } from './scan.mjs';
 import {
 	BUILTIN_PRICING,
+	DEFAULT_FX,
 	effectivePricing,
 	normalizePricingDoc,
 	saveOverride,
@@ -98,6 +99,7 @@ export function mountRoutes(host) {
 					const stats = aggregate(records, pricing.models);
 					sendJson(response, 200, {
 						...stats,
+						fx: pricing.fx,
 						pricingErrors: pricing.overrideErrors,
 						meta: { generatedAt: Date.now(), files, scanMs: Date.now() - started, errors: errors.slice(0, 20) },
 					});
@@ -117,6 +119,7 @@ export function mountRoutes(host) {
 						builtin: BUILTIN_PRICING,
 						override: doc,
 						overrideError: error,
+						fx: pricing.fx,
 						effective: { models: pricing.models },
 					});
 					return;
@@ -143,17 +146,18 @@ export function mountRoutes(host) {
 						sendJson(response, 400, { error: `invalid JSON: ${error.message}` });
 						return;
 					}
-					const { models, errors } = normalizePricingDoc(parsed);
+					const { models, fx, errors } = normalizePricingDoc(parsed);
 					if (Object.keys(models).length === 0) {
 						sendJson(response, 400, { error: errors.length > 0 ? errors.join('; ') : 'no valid model entries' });
 						return;
 					}
-					saveOverride(home, { models: parsed.models });
+					saveOverride(home, { fx, models: parsed.models });
 					const pricing = effectivePricing(home);
 					sendJson(response, 200, {
 						ok: true,
 						saved: overridePath(home),
 						warnings: errors,
+						fx: pricing.fx,
 						effective: { models: pricing.models },
 					});
 				} catch (error) {

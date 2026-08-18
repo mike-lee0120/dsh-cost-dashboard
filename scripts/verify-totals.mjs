@@ -57,6 +57,7 @@ for (const [sessionId, table] of Object.entries(sessions)) {
 	for (const [key, want] of fields) {
 		if (got[key] !== want) {
 			ok = false;
+			fail += 1;
 			console.error(`FAIL ${sessionId}: ${key} scanned=${got[key]} expected=${want} (diff ${got[key] - want})`);
 		}
 	}

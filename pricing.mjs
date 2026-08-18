@@ -172,6 +172,9 @@ export const BUILTIN_PRICING = {
 
 const CURRENCIES = new Set(['CNY', 'USD']);
 
+/** Default USD/CNY conversion: 1 USD = 6.79 CNY (2026-08-18 PBOC mid rate 6.7905). */
+export const DEFAULT_FX = { cnyPerUsd: 6.79 };
+
 /** Validate and normalize one model pricing entry; returns null when invalid. */
 export function normalizeEntry(value) {
 	if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -213,12 +216,21 @@ export function normalizeEntry(value) {
 	return out;
 }
 
-/** Validate a whole pricing document ({ models: { name: entry } }); returns { models, errors }. */
+/** Validate a whole pricing document ({ fx?: {cnyPerUsd}, models: { name: entry } }); returns { models, fx, errors }. */
 export function normalizePricingDoc(value) {
 	const errors = [];
 	const models = {};
 	if (value === null || typeof value !== 'object' || Array.isArray(value) || typeof value.models !== 'object' || value.models === null) {
-		return { models, errors: ['document must be { "models": { "<model>": { ... } } }'] };
+		return { models, fx: { ...DEFAULT_FX }, errors: ['document must be { "fx": { "cnyPerUsd": 6.79 }, "models": { "<model>": { ... } } }'] };
+	}
+	let fx = { ...DEFAULT_FX };
+	if (value.fx !== undefined) {
+		if (value.fx === null || typeof value.fx !== 'object' || Array.isArray(value.fx)
+			|| typeof value.fx.cnyPerUsd !== 'number' || !Number.isFinite(value.fx.cnyPerUsd) || value.fx.cnyPerUsd <= 0) {
+			errors.push('fx: invalid, needs { "cnyPerUsd": positive number } - using default');
+		} else {
+			fx = { cnyPerUsd: value.fx.cnyPerUsd };
+		}
 	}
 	for (const [name, entry] of Object.entries(value.models)) {
 		const normalized = normalizeEntry(entry);
@@ -228,7 +240,7 @@ export function normalizePricingDoc(value) {
 		}
 		models[name] = normalized;
 	}
-	return { models, errors };
+	return { models, fx, errors };
 }
 
 /** Path of the user override document. */
@@ -272,18 +284,20 @@ export function saveOverride(home, value) {
 
 /**
  * Effective pricing: builtin defaults with per-model whole-entry override.
- * Returns { models, overrideErrors }.
+ * Returns { models, fx, overrideErrors }.
  */
 export function effectivePricing(home) {
 	const { doc, error } = loadOverride(home);
 	const models = { ...BUILTIN_PRICING.models };
+	let fx = { ...DEFAULT_FX };
 	const overrideErrors = error ? [error] : [];
 	if (doc !== null) {
-		const { models: overrides, errors } = normalizePricingDoc(doc);
+		const { models: overrides, fx: overrideFx, errors } = normalizePricingDoc(doc);
 		overrideErrors.push(...errors);
 		for (const [name, entry] of Object.entries(overrides)) models[name] = entry;
+		fx = overrideFx;
 	}
-	return { models, overrideErrors };
+	return { models, fx, overrideErrors };
 }
 
 /**

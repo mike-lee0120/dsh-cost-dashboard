@@ -318,12 +318,14 @@ export function aggregate(records, pricing) {
 	const sessions = [];
 	const unpriced = new Set();
 	let subagents = 0;
+	let activeSessions = 0;
 	for (const record of records) {
-		const sessionBuckets = zeroBuckets();
-		const sessionCost = {};
-		const sessionModels = [];
+		const modelEntries = Object.values(record.models);
+		const modelsTotal = modelEntries.length;
 		let hasSamples = false;
-		for (const { provider, model, samples } of Object.values(record.models)) {
+		for (const { provider, model, samples } of modelEntries) {
+			if (samples.length === 0) continue;
+			hasSamples = true;
 			const modelKey = `${provider ?? '?'}\u0000${model ?? '?'}`;
 			let modelRow = modelMap.get(modelKey);
 			if (modelRow === undefined) {
@@ -332,15 +334,16 @@ export function aggregate(records, pricing) {
 			}
 			const entry = pricing[model ?? ''];
 			if (entry === undefined && model != null) unpriced.add(model);
+			const rowBuckets = zeroBuckets();
+			const rowCost = {};
 			for (const sample of samples) {
-				hasSamples = true;
 				addBuckets(totals, sample);
 				addBuckets(modelRow.buckets, sample);
-				addBuckets(sessionBuckets, sample);
+				addBuckets(rowBuckets, sample);
 				const cost = entry === undefined ? null : sampleCostOf(entry, sample);
 				addCost(totalCost, cost);
 				addCost(modelRow.cost, cost);
-				addCost(sessionCost, cost);
+				addCost(rowCost, cost);
 				const day = dayOf(sample.t);
 				let dayRow = dayMap.get(day);
 				if (dayRow === undefined) {
@@ -350,23 +353,24 @@ export function aggregate(records, pricing) {
 				addBuckets(dayRow.buckets, sample);
 				addCost(dayRow.cost, cost);
 			}
-			sessionModels.push({ provider, model });
+			sessions.push({
+				sessionId: record.id,
+				title: record.title,
+				project: record.cwd === null ? null : record.cwd.split('/').filter(Boolean).pop() ?? record.cwd,
+				cwd: record.cwd,
+				createdAt: record.createdAt,
+				lastTime: record.lastTime,
+				turns: record.turns,
+				provider,
+				model,
+				modelsTotal,
+				...rowBuckets,
+				costByCurrency: rowCost,
+				isSubagent: record.delegationDepth > 0,
+			});
 		}
 		if (record.delegationDepth > 0) subagents += 1;
-		sessions.push({
-			sessionId: record.id,
-			title: record.title,
-			project: record.cwd === null ? null : record.cwd.split('/').filter(Boolean).pop() ?? record.cwd,
-			cwd: record.cwd,
-			createdAt: record.createdAt,
-			lastTime: record.lastTime,
-			turns: record.turns,
-			models: sessionModels,
-			...sessionBuckets,
-			costByCurrency: sessionCost,
-			isSubagent: record.delegationDepth > 0,
-			hasSamples,
-		});
+		if (hasSamples) activeSessions += 1;
 	}
 	// Dominant currency for ordering (the currency with the greatest total).
 	const dominant = Object.entries(totalCost).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
@@ -398,7 +402,7 @@ export function aggregate(records, pricing) {
 		summary: {
 			sessions: records.length,
 			subagents,
-			activeSessions: sessions.filter((session) => session.hasSamples).length,
+			activeSessions,
 			totals,
 			costByCurrency: totalCost,
 			todayCostByCurrency: todayCost,
@@ -408,7 +412,7 @@ export function aggregate(records, pricing) {
 		},
 		byDay: byDay.map((row) => ({ date: row.date, ...row.buckets, costByCurrency: row.cost })),
 		byModel,
-		bySession: sessions.slice(0, 100).map(({ hasSamples, ...rest }) => rest),
+		bySession: sessions.slice(0, 200),
 		sessionCount: sessions.length,
 		unpricedModels: [...unpriced].sort(),
 	};

@@ -6,11 +6,13 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 
 ## What you get
 
-- **Summary cards**: total cost (per currency), today's cost, input (cache-miss) / cache-read / cache-write / output tokens, session count
-- **Daily trend chart**: tokens (four stacked buckets) and cost (one mini chart per currency), last 30 days
+- **Two entry points**: Settings -> Cost Dashboard (the settings nav icons are hardcoded by the dsh settings shell, so plugins cannot customize them), plus a **sidebar footer icon button** (data-grid style) that opens the same dashboard in an anchored panel
+- **Currency switch**: displays in **USD by default** with a one-click CNY toggle; converts between CNY- and USD-listed prices at the configurable `fx.cnyPerUsd` rate (default 6.79)
+- **Summary cards**: total cost, today's cost, input (cache-miss) / cache-read / cache-write / output tokens, session count
+- **Daily trend chart**: tokens (four stacked buckets) and cost (**single unified-currency** series), last 30 days
 - **By-model table**: tokens, cost, share per model
-- **By-session table**: top 100 sessions by cost, with title, project directory, models used, subagent badge
-- **Pricing editor**: edit the pricing JSON in-page; saves to `~/.dsh/cost-dashboard.json`, effective immediately
+- **By-session table**: sorted by cost, **one row per session-model pair** (a session that used several models appears on several rows, each with its own model, tokens and cost), with title, project directory, subagent badge
+- **Pricing editor**: edit the pricing JSON (including the FX rate) in-page; saves to `~/.dsh/cost-dashboard.json`, effective immediately
 - **Auto refresh**: polls every 15s while open; the host re-reads only changed log files (mtime + size validated)
 
 ## Install
@@ -84,10 +86,11 @@ Built-in pricing for 21 mainstream models (per 1M tokens, checked 2026-08-18; "h
 
 ### Overrides
 
-The in-dashboard **Pricing config** editor saves `~/.dsh/cost-dashboard.json` (whole-entry per-model override):
+The in-dashboard **Pricing config** editor saves `~/.dsh/cost-dashboard.json` (per-model whole-entry overrides plus the FX rate):
 
 ```json
 {
+  "fx": { "cnyPerUsd": 6.79 },
   "models": {
     "glm-5.3": { "currency": "USD", "input": 1.4, "inputHit": 0.14, "output": 4.4 },
     "my-local-model": { "currency": "CNY", "input": 2, "output": 6,
@@ -96,7 +99,7 @@ The in-dashboard **Pricing config** editor saves `~/.dsh/cost-dashboard.json` (w
 }
 ```
 
-Fields: `currency` (CNY|USD), `input` (cache-miss), `inputHit` (defaults to input), `cacheWrite` (defaults to input), `output`; optional `peak` and `peakHours` (host-local hours; peak hours use peak rates, unset peak fields fall back to flat). Costs accumulate per currency; no FX conversion.
+Fields: `fx.cnyPerUsd` (USD->CNY, default 6.79, used for cross-currency display); per model `currency` (CNY|USD), `input` (cache-miss), `inputHit` (defaults to input), `cacheWrite` (defaults to input), `output`; optional `peak` and `peakHours` (host-local hours; peak hours use peak rates, unset peak fields fall back to flat). The dashboard displays USD by default and converts CNY-listed prices at the FX rate; switching to CNY converts USD-listed prices the other way.
 
 ## Development
 

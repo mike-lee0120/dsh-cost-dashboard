@@ -1,9 +1,17 @@
 /**
  * dsh-cost-dashboard browser bundle.
  *
- * Registers the "费用看板" settings section: fetches aggregated usage and
- * cost from the host routes and renders summary cards, a per-day chart,
- * per-model and per-session tables, and a pricing override editor.
+ * Registers two entry points:
+ * - a settings section (费用看板) via `settings.section`;
+ * - a sidebar footer action with a dashboard icon via `sidebar.footer.action`
+ *   that opens the same dashboard in an anchored panel (the settings nav icons
+ *   are hardcoded by the dsh settings shell, so the footer action is how the
+ *   plugin gets a dashboard-style icon).
+ *
+ * The dashboard fetches aggregated usage and cost from the host routes and
+ * renders summary cards, a per-day chart, per-model and per-session tables,
+ * and a pricing/currency override editor. Costs convert between USD and CNY
+ * with the configurable `fx.cnyPerUsd` rate; default display currency is USD.
  *
  * Plain React.createElement throughout - the module-loader factory format has
  * no build step (see @deepseek-ai/dsh-client-modules).
@@ -14,8 +22,10 @@ window.__ModuleLoader__.load({
 		const module = { exports: {} };
 		const exports = module.exports;
 		const react = require("react");
+		const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 		const h = react.createElement;
-		const { useState, useEffect, useMemo, useCallback, useRef } = react;
+		const { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } = react;
+		const IconDataOutline16 = primitives.IconDataOutline16;
 
 		const NS = "costDashboard";
 
@@ -46,7 +56,7 @@ window.__ModuleLoader__.load({
 			"legend.output": "输出",
 			"table.models": "按模型汇总",
 			"table.sessions": "按会话汇总",
-			"table.sessionsHint": "显示前 {shown} / 共 {total} 个（按费用排序）",
+			"table.sessionsHint": "显示前 {shown} / 共 {total} 条（按费用排序）",
 			"col.model": "模型",
 			"col.provider": "供应商",
 			"col.input": "输入",
@@ -62,8 +72,9 @@ window.__ModuleLoader__.load({
 			"col.time": "时间",
 			subagent: "子代理",
 			untitled: "（无标题）",
+			multiModel: "· 共 {n} 个模型",
 			"pricing.title": "价格配置",
-			"pricing.hint": "保存到 ~/.dsh/cost-dashboard.json，按模型名整体覆盖内置价格。单位：每百万 tokens。字段：currency (CNY|USD)、input、inputHit、cacheWrite、output；可选 peak {...} 与 peakHours [[9,12],[14,18]]（宿主本地时间，命中峰时改用 peak 费率，peak 未写的字段回落平价）。",
+			"pricing.hint": "保存到 ~/.dsh/cost-dashboard.json，按模型名整体覆盖内置价格。单位：每百万 tokens。字段：fx.cnyPerUsd（美元兑人民币，默认 6.79）；每个模型 currency (CNY|USD)、input、inputHit、cacheWrite、output；可选 peak {...} 与 peakHours [[9,12],[14,18]]（宿主本地时间，命中峰时改用 peak 费率，peak 未写的字段回落平价）。",
 			"pricing.reload": "重新载入",
 			"pricing.save": "保存",
 			"pricing.saved": "已保存 ✓",
@@ -106,7 +117,7 @@ window.__ModuleLoader__.load({
 			"legend.output": "output",
 			"table.models": "By model",
 			"table.sessions": "By session",
-			"table.sessionsHint": "showing {shown} of {total} (by cost)",
+			"table.sessionsHint": "showing {shown} of {total} rows (by cost)",
 			"col.model": "Model",
 			"col.provider": "Provider",
 			"col.input": "Input",
@@ -122,8 +133,9 @@ window.__ModuleLoader__.load({
 			"col.time": "When",
 			subagent: "subagent",
 			untitled: "(untitled)",
+			multiModel: "· {n} models",
 			"pricing.title": "Pricing config",
-			"pricing.hint": "Saves to ~/.dsh/cost-dashboard.json; each model entry wholly overrides the builtin one. Rates per 1M tokens. Fields: currency (CNY|USD), input, inputHit, cacheWrite, output; optional peak {...} and peakHours [[9,12],[14,18]] (host-local clock; peak hours use peak rates, unset peak fields fall back to flat).",
+			"pricing.hint": "Saves to ~/.dsh/cost-dashboard.json; each model entry wholly overrides the builtin one. Rates per 1M tokens. Fields: fx.cnyPerUsd (USD->CNY, default 6.79); per model currency (CNY|USD), input, inputHit, cacheWrite, output; optional peak {...} and peakHours [[9,12],[14,18]] (host-local clock; peak hours use peak rates, unset peak fields fall back to flat).",
 			"pricing.reload": "Reload",
 			"pricing.save": "Save",
 			"pricing.saved": "Saved ✓",
@@ -144,7 +156,7 @@ window.__ModuleLoader__.load({
 .cd-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .cd-title{font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .cd-sub{color:var(--dsw-alias-label-tertiary);font-size:12px;flex:1 1 auto;min-width:200px}
-.cd-actions{display:flex;align-items:center;gap:8px}
+.cd-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .cd-toggle{display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden}
 .cd-toggle button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:4px 12px;font-size:12px;cursor:pointer}
 .cd-toggle button.cd-on{background:var(--dsw-alias-fill-l2);color:var(--dsw-alias-label-primary)}
@@ -189,6 +201,18 @@ window.__ModuleLoader__.load({
 .cd-meta{color:var(--dsw-alias-label-tertiary);font-size:11px;display:flex;gap:12px;flex-wrap:wrap}
 .cd-empty{color:var(--dsw-alias-label-tertiary);padding:24px 0;text-align:center}
 .cd-chartCard{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:12px}
+.cd-footer{position:relative}
+.cd-footerBtn{box-sizing:border-box;cursor:pointer;width:100%;height:36px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:10px;align-items:center;gap:8px;padding:0 8px;font-size:12.5px;line-height:18px;display:flex}
+.cd-footerBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.cd-footerBtnOpen{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.cd-footerLabel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-footerMask{position:fixed;inset:0;z-index:998;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.32))}
+.cd-footerPanel{position:fixed;z-index:999;box-sizing:border-box;width:760px;max-width:calc(100vw - 32px);max-height:min(720px,calc(100vh - 120px));background:var(--dsw-alias-bg-layer-2,#fff);border:1px solid var(--dsw-alias-border-l2);border-radius:16px;box-shadow:var(--dsw-shadow-lv3);display:flex;flex-direction:column;overflow:hidden}
+.cd-footerPanelHead{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.cd-footerPanelTitle{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.cd-footerClose{cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:28px;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.cd-footerClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.cd-footerPanelBody{flex:1;min-height:0;overflow-y:auto;padding:14px 16px}
 `;
 
 		const TAG = "dsh-cost-dashboard/styles.css";
@@ -200,8 +224,9 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 
-		const COLORS = { input: "#4e83ff", cacheRead: "#23a55a", cacheWrite: "#f5a623", output: "#9d7bd8", cost0: "#4e83ff", cost1: "#23a55a", cost2: "#f5a623" };
+		const COLORS = { input: "#4e83ff", cacheRead: "#23a55a", cacheWrite: "#f5a623", output: "#9d7bd8" };
 		const CURRENCY_SYMBOLS = { CNY: "¥", USD: "$" };
+		const DEFAULT_CNY_PER_USD = 6.79;
 
 		function fmtTokens(value) {
 			if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
@@ -219,12 +244,6 @@ window.__ModuleLoader__.load({
 			return `${symbol}${amount.toFixed(2)}`;
 		}
 
-		function fmtCosts(byCurrency, t) {
-			const names = Object.keys(byCurrency ?? {}).sort();
-			const parts = names.map((name) => fmtCost(name, byCurrency[name] ?? 0));
-			return parts.length > 0 ? parts.join("  /  ") : "—";
-		}
-
 		function fmtWhen(time) {
 			if (!time) return "—";
 			const date = new Date(time);
@@ -233,6 +252,14 @@ window.__ModuleLoader__.load({
 
 		function el(tag, props, ...children) {
 			return h(tag, props ?? {}, ...children);
+		}
+
+		/** Convert a {CNY,USD} cost map into one number in the target currency. */
+		function inCurrency(byCurrency, currency, cnyPerUsd) {
+			const cny = byCurrency?.CNY ?? 0;
+			const usd = byCurrency?.USD ?? 0;
+			if (currency === "CNY") return cny + usd * cnyPerUsd;
+			return usd + cny / cnyPerUsd;
 		}
 
 		/** Stacked daily tokens chart (viewBox-scaled SVG, no dependencies). */
@@ -281,36 +308,37 @@ window.__ModuleLoader__.load({
 					: null));
 		}
 
-		/** One mini bar row per currency in cost mode (each with its own scale). */
-		function CostChart({ days, currencies, t }) {
-			if (days.length === 0 || currencies.length === 0) return null;
-			return el("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-				currencies.map((currency, currencyIndex) => {
-					const slot = Math.max(10, Math.min(26, Math.floor(900 / days.length)));
-					const width = days.length * slot;
-					const height = 64;
-					const max = Math.max(0.000001, ...days.map((day) => day.costByCurrency?.[currency] ?? 0));
-					const color = COLORS[`cost${currencyIndex % 3}`];
-					const bars = days.map((day, index) => {
-						const amount = day.costByCurrency?.[currency] ?? 0;
-						if (amount <= 0) return null;
-						const barHeight = (height - 4) * (amount / max);
-						return el("rect", {
-							key: index,
-							x: index * slot + 1.5,
-							y: height - barHeight,
-							width: slot - 3,
-							height: barHeight,
-							fill: color,
-							rx: 1.5,
-						}, el("title", {}, `${day.date} · ${fmtCost(currency, amount)}`));
-					});
-					return el("div", { key: currency, style: { display: "flex", alignItems: "center", gap: 8 } },
-						el("span", { className: "cd-chartLabel" }, `${CURRENCY_SYMBOLS[currency] ?? currency} · ${t("chart.max", { v: fmtCost(currency, max) })}`),
-						el("svg", { className: "cd-svg", viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", style: { height: 64 } },
-							el("line", { x1: 0, y1: height - 0.5, x2: width, y2: height - 0.5, stroke: "var(--dsw-alias-border-l2, #ddd)" }),
-							bars));
-				}));
+		/** Single-series daily cost chart in the selected currency. */
+		function CostChart({ days, currency, cnyPerUsd, t }) {
+			if (days.length === 0) return null;
+			const slot = Math.max(10, Math.min(26, Math.floor(900 / days.length)));
+			const width = days.length * slot;
+			const height = 96;
+			const max = Math.max(0.000001, ...days.map((day) => inCurrency(day.costByCurrency, currency, cnyPerUsd)));
+			const bars = days.map((day, index) => {
+				const amount = inCurrency(day.costByCurrency, currency, cnyPerUsd);
+				if (amount <= 0) return null;
+				const barHeight = (height - 4) * (amount / max);
+				return el("rect", {
+					key: index,
+					x: index * slot + 1.5,
+					y: height - barHeight,
+					width: slot - 3,
+					height: barHeight,
+					fill: COLORS.input,
+					rx: 1.5,
+				}, el("title", {}, `${day.date} · ${fmtCost(currency, amount)}`));
+			});
+			const labelStep = Math.max(1, Math.ceil(days.length / 12));
+			return el("div", { className: "cd-chart" },
+				el("div", { className: "cd-chartRow" },
+					el("span", { className: "cd-chartLabel" }, `${CURRENCY_SYMBOLS[currency] ?? currency} · ${t("chart.max", { v: fmtCost(currency, max) })}`)),
+				el("svg", { className: "cd-svg", viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: "none", style: { height: 96 } },
+					el("line", { x1: 0, y1: height - 0.5, x2: width, y2: height - 0.5, stroke: "var(--dsw-alias-border-l2, #ddd)" }),
+					bars,
+					days.map((day, index) => index % labelStep === 0
+						? el("text", { key: `x-${index}`, x: index * slot + slot / 2, y: height - 2, fontSize: 8, fill: "var(--dsw-alias-label-tertiary, #999)", textAnchor: "middle" }, day.date.slice(5))
+						: null)));
 		}
 
 		function Card({ label, value, hint }) {
@@ -326,10 +354,13 @@ window.__ModuleLoader__.load({
 			const [error, setError] = useState(null);
 			const [loading, setLoading] = useState(true);
 			const [mode, setMode] = useState("cost");
+			const [currency, setCurrency] = useState("USD");
 			const [editorOpen, setEditorOpen] = useState(false);
 			const [editorText, setEditorText] = useState("");
 			const [editorStatus, setEditorStatus] = useState(null);
 			const alive = useRef(true);
+
+			const fx = data?.fx?.cnyPerUsd ?? DEFAULT_CNY_PER_USD;
 
 			const load = useCallback(async () => {
 				try {
@@ -362,7 +393,7 @@ window.__ModuleLoader__.load({
 				const payload = await response.json();
 				if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
 				const base = payload.override?.models ?? payload.builtin.models;
-				setEditorText(JSON.stringify({ models: base }, null, 2));
+				setEditorText(JSON.stringify({ fx: payload.fx ?? { cnyPerUsd: DEFAULT_CNY_PER_USD }, models: base }, null, 2));
 				setEditorStatus(payload.override ? { kind: "hint", text: t("pricing.overridden") } : null);
 			}, [t]);
 
@@ -385,16 +416,11 @@ window.__ModuleLoader__.load({
 
 			const summary = data?.summary;
 			const chartDays = useMemo(() => (data?.byDay ?? []).slice(-30), [data]);
-			const costCurrencies = useMemo(() => {
-				const names = new Set();
-				for (const day of data?.byDay ?? []) {
-					for (const name of Object.keys(day.costByCurrency ?? {})) names.add(name);
-				}
-				return [...names].sort();
-			}, [data]);
 			const totalTokens = summary
 				? summary.totals.input + summary.totals.cacheRead + summary.totals.cacheWrite + summary.totals.output
 				: 0;
+			const totalCost = summary ? inCurrency(summary.costByCurrency, currency, fx) : 0;
+			const todayCost = summary ? inCurrency(summary.todayCostByCurrency, currency, fx) : 0;
 
 			if (loading && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-empty" }, t("loading")));
 			if (error !== null && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-error" }, t("error.load", { msg: error })));
@@ -407,11 +433,14 @@ window.__ModuleLoader__.load({
 						el("div", { className: "cd-toggle" },
 							el("button", { className: mode === "cost" ? "cd-on" : "", onClick: () => setMode("cost") }, t("mode.cost")),
 							el("button", { className: mode === "tokens" ? "cd-on" : "", onClick: () => setMode("tokens") }, t("mode.tokens"))),
+						el("div", { className: "cd-toggle" },
+							el("button", { className: currency === "USD" ? "cd-on" : "", onClick: () => setCurrency("USD") }, "USD"),
+							el("button", { className: currency === "CNY" ? "cd-on" : "", onClick: () => setCurrency("CNY") }, "CNY")),
 						el("button", { className: "cd-refresh", onClick: () => { setLoading(true); load(); } }, t("refresh")))),
 				error !== null ? el("div", { className: "cd-error" }, t("error.load", { msg: error })) : null,
 				data === null || summary === null || summary.sessions === 0 ? el("div", { className: "cd-empty" }, t("empty")) : el(react.Fragment, null,
 					el("div", { className: "cd-cards" },
-						el(Card, { label: t("card.totalCost"), value: fmtCosts(summary.costByCurrency), hint: `${t("card.today")}: ${fmtCosts(summary.todayCostByCurrency)}` }),
+						el(Card, { label: t("card.totalCost"), value: fmtCost(currency, totalCost), hint: `${t("card.today")}: ${fmtCost(currency, todayCost)}` }),
 						el(Card, { label: t("card.input"), value: fmtTokens(summary.totals.input), hint: t("card.inputHint") }),
 						el(Card, { label: t("card.cacheRead"), value: fmtTokens(summary.totals.cacheRead) }),
 						el(Card, { label: t("card.cacheWrite"), value: fmtTokens(summary.totals.cacheWrite) }),
@@ -430,7 +459,7 @@ window.__ModuleLoader__.load({
 									el("span", { className: "cd-legendItem" }, el("span", { className: "cd-dot", style: { background: COLORS.cacheRead } }), t("legend.cacheRead")),
 									el("span", { className: "cd-legendItem" }, el("span", { className: "cd-dot", style: { background: COLORS.cacheWrite } }), t("legend.cacheWrite")),
 									el("span", { className: "cd-legendItem" }, el("span", { className: "cd-dot", style: { background: COLORS.output } }), t("legend.output"))))
-							: el(CostChart, { days: chartDays, currencies: costCurrencies, t })),
+							: el(CostChart, { days: chartDays, currency, cnyPerUsd: fx, t })),
 					el("div", null,
 						el("div", { className: "cd-sectionTitle", style: { margin: "4px 0 8px" } }, t("table.models")),
 						el("div", { className: "cd-tableWrap" },
@@ -452,7 +481,7 @@ window.__ModuleLoader__.load({
 										el("td", { className: "cd-num", title: String(row.input) }, fmtTokens(row.input)),
 										el("td", { className: "cd-num", title: String(row.cacheRead) }, fmtTokens(row.cacheRead)),
 										el("td", { className: "cd-num", title: String(row.output) }, fmtTokens(row.output)),
-										el("td", { className: "cd-num" }, row.priced ? fmtCosts(row.costByCurrency) : "—"),
+										el("td", { className: "cd-num" }, row.priced ? fmtCost(currency, inCurrency(row.costByCurrency, currency, fx)) : "—"),
 										el("td", null, el("div", { className: "cd-share", title: `${(share * 100).toFixed(1)}%` }, el("div", { className: "cd-shareFill", style: { width: `${Math.round(share * 100)}%` } }))));
 								}))))),
 					el("div", null,
@@ -463,19 +492,20 @@ window.__ModuleLoader__.load({
 							el("table", { className: "cd-table" },
 								el("thead", null, el("tr", null,
 									el("th", null, t("col.session")),
-									el("th", null, t("col.models")),
+									el("th", null, t("col.model")),
 									el("th", { className: "cd-num" }, t("col.tokens")),
 									el("th", { className: "cd-num" }, t("col.cost")),
 									el("th", null, t("col.time")))),
-								el("tbody", null, data.bySession.map((row) => el("tr", { key: row.sessionId ?? Math.random() },
+								el("tbody", null, data.bySession.map((row, index) => el("tr", { key: `${row.sessionId}-${row.provider}-${row.model}-${index}` },
 									el("td", null,
 										el("div", { style: { maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, row.title ?? t("untitled")),
 										el("div", { className: "cd-dim", style: { fontSize: 11 } },
 											row.isSubagent ? el("span", { className: "cd-badge" }, t("subagent")) : null,
-											row.project ?? "")),
-									el("td", null, row.models.map((entry, index) => el("span", { key: index, className: "cd-badge cd-mono" }, entry.model ?? "?"))),
+											row.project ?? "",
+											row.modelsTotal > 1 ? ` ${t("multiModel", { n: row.modelsTotal })}` : "")),
+									el("td", null, el("span", { className: "cd-badge cd-mono" }, row.model ?? "?")),
 									el("td", { className: "cd-num", title: `in ${row.input} / cr ${row.cacheRead} / out ${row.output}` }, fmtTokens(row.input + row.cacheRead + row.cacheWrite + row.output)),
-									el("td", { className: "cd-num" }, fmtCosts(row.costByCurrency)),
+									el("td", { className: "cd-num" }, fmtCost(currency, inCurrency(row.costByCurrency, currency, fx))),
 									el("td", { className: "cd-dim", style: { whiteSpace: "nowrap" } }, fmtWhen(row.lastTime || row.createdAt))))))))),
 				el("details", { className: "cd-details", open: editorOpen, onToggle: (event) => {
 					setEditorOpen(event.currentTarget.open);
@@ -497,6 +527,52 @@ window.__ModuleLoader__.load({
 					data?.pricingErrors?.length ? el("span", { title: data.pricingErrors.join("\n") }, t("meta.pricingErrors", { msg: data.pricingErrors[0] })) : null));
 		}
 
+		/** Sidebar footer action: dashboard icon + anchored panel with the dashboard. */
+		function FooterAction({ wide, t }) {
+			const [open, setOpen] = useState(false);
+			const [anchor, setAnchor] = useState(null);
+			const rootRef = useRef(null);
+			useLayoutEffect(() => {
+				if (!open) return;
+				const place = () => {
+					const rect = rootRef.current?.getBoundingClientRect();
+					if (rect !== undefined) {
+						setAnchor({
+							left: Math.max(8, Math.min(rect.left, window.innerWidth - 776)),
+							bottom: Math.max(8, window.innerHeight - rect.top + 8),
+						});
+					}
+				};
+				place();
+				window.addEventListener("resize", place);
+				return () => window.removeEventListener("resize", place);
+			}, [open]);
+			useEffect(() => {
+				if (!open) return;
+				const onKey = (event) => {
+					if (event.key === "Escape") setOpen(false);
+				};
+				window.addEventListener("keydown", onKey);
+				return () => window.removeEventListener("keydown", onKey);
+			}, [open]);
+			return el("div", { className: "cd-footer", ref: rootRef },
+				el("button", {
+					type: "button",
+					className: `cd-footerBtn${open ? " cd-footerBtnOpen" : ""}`,
+					title: t("nav"),
+					"aria-expanded": open ? "true" : "false",
+					onClick: () => setOpen((value) => !value),
+				},
+					el(IconDataOutline16, { size: 16 }),
+					wide ? el("span", { className: "cd-footerLabel" }, t("nav")) : null),
+				open ? el("div", { className: "cd-footerMask", onClick: () => setOpen(false) }) : null,
+				open ? el("div", { className: "cd-footerPanel", style: anchor ? { left: anchor.left, bottom: anchor.bottom } : undefined },
+					el("div", { className: "cd-footerPanelHead" },
+						el("span", { className: "cd-footerPanelTitle" }, t("title")),
+						el("button", { className: "cd-footerClose", title: "Close", onClick: () => setOpen(false) }, "×")),
+					el("div", { className: "cd-footerPanelBody" }, el(Dashboard, { t }))) : null);
+		}
+
 		const inject = ["slots", "locale"];
 
 		function apply(ctx) {
@@ -510,6 +586,12 @@ window.__ModuleLoader__.load({
 				locale: NS,
 				inject: () => ({ t }),
 			}, Dashboard));
+			ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
+				name: "sidebar.footer.action",
+				id: "cost-dashboard",
+				locale: NS,
+				inject: () => ({ t }),
+			}, FooterAction));
 		}
 
 		exports.name = "cost-dashboard";
