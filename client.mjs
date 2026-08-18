@@ -77,7 +77,7 @@ window.__ModuleLoader__.load({
 			"col.time": "时间",
 			subagent: "子代理",
 			untitled: "（无标题）",
-			multiModel: "· 共 {n} 个模型",
+			multiModel: "共 {n} 个模型",
 			"pricing.title": "价格配置",
 			"pricing.hint": "保存到 ~/.dsh/cost-dashboard.json，按模型名整体覆盖内置价格。单位：每百万 tokens。字段：fx.cnyPerUsd（美元兑人民币，默认 6.79）；每个模型 currency (CNY|USD)、input、inputHit、cacheWrite、output；可选 peak {...} 与 peakHours [[9,12],[14,18]]（宿主本地时间，命中峰时改用 peak 费率，peak 未写的字段回落平价）。",
 			"pricing.reload": "重新载入",
@@ -143,7 +143,7 @@ window.__ModuleLoader__.load({
 			"col.time": "When",
 			subagent: "subagent",
 			untitled: "(untitled)",
-			multiModel: "· {n} models",
+			multiModel: "{n} models",
 			"pricing.title": "Pricing config",
 			"pricing.hint": "Saves to ~/.dsh/cost-dashboard.json; each model entry wholly overrides the builtin one. Rates per 1M tokens. Fields: fx.cnyPerUsd (USD->CNY, default 6.79); per model currency (CNY|USD), input, inputHit, cacheWrite, output; optional peak {...} and peakHours [[9,12],[14,18]] (host-local clock; peak hours use peak rates, unset peak fields fall back to flat).",
 			"pricing.reload": "Reload",
@@ -187,7 +187,14 @@ window.__ModuleLoader__.load({
 .cd-table{width:100%;border-collapse:collapse;font-size:12.5px}
 .cd-table th{color:var(--dsw-alias-label-tertiary);font-weight:500;text-align:left;padding:7px 10px;white-space:nowrap;font-size:11.5px}
 .cd-table td{padding:7px 10px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);vertical-align:top}
-.cd-sessionHeader td{background:var(--dsw-alias-fill-l1);font-weight:500}
+.cd-sessionHeader td{background:var(--dsw-alias-fill-l1)}
+.cd-sessionHeaderInner{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.cd-sessionTitle{font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-sessionMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;display:flex;align-items:center;gap:6px;margin-top:2px}
+.cd-modelCount{flex:none;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:20px;background:var(--dsw-alias-fill-l2);border-radius:999px;padding:0 9px}
+.cd-modelName{display:inline-flex;align-items:center;gap:7px;font-family:var(--dsw-font-mono)}
+.cd-modelDot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary);flex:none}
+.cd-modelRow td{border-top:1px solid transparent}
 .cd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .cd-mono{font-family:var(--dsw-font-mono)}
 .cd-dim{color:var(--dsw-alias-label-tertiary)}
@@ -666,16 +673,17 @@ window.__ModuleLoader__.load({
 									el("th", null, t("col.time")))),
 								el("tbody", null, sessionGroups.flatMap((group) => [
 									el("tr", { key: `g-${group.sessionId}`, className: "cd-sessionHeader" },
-										el("td", { colSpan: 2 },
-											el("div", { style: { maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, group.title ?? t("untitled")),
-											el("div", { className: "cd-dim", style: { fontSize: 11 } },
-												group.isSubagent ? el("span", { className: "cd-badge" }, t("subagent")) : null,
-												group.project ?? "",
-												group.modelsTotal > 1 ? ` ${t("multiModel", { n: group.modelsTotal })}` : "")),
-										el("td", { colSpan: 6 })),
-									...group.models.map((row) => el("tr", { key: `${row.sessionId}-${row.provider}-${row.model}` },
-										el("td", { className: "cd-dim", style: { textAlign: "right" } }, "↳"),
-										el("td", null, el("span", { className: "cd-badge cd-mono" }, row.model ?? "?")),
+										el("td", { colSpan: 8 },
+											el("div", { className: "cd-sessionHeaderInner" },
+												el("div", { style: { minWidth: 0 } },
+													el("div", { className: "cd-sessionTitle", title: group.title }, group.title ?? t("untitled")),
+													el("div", { className: "cd-sessionMeta" },
+														group.isSubagent ? el("span", { className: "cd-badge" }, t("subagent")) : null,
+														el("span", null, group.project ?? ""))),
+												group.modelsTotal > 1 ? el("span", { className: "cd-modelCount" }, t("multiModel", { n: group.modelsTotal })) : null))),
+									...group.models.map((row) => el("tr", { key: `${row.sessionId}-${row.provider}-${row.model}`, className: "cd-modelRow" },
+										el("td", null),
+										el("td", null, el("span", { className: "cd-modelName" }, el("span", { className: "cd-modelDot" }), row.model ?? "?")),
 										el("td", { className: "cd-num", title: String(row.input) }, fmtTokens(row.input)),
 										el("td", { className: "cd-num", title: String(row.cacheRead) }, fmtTokens(row.cacheRead)),
 										el("td", { className: "cd-num", title: String(row.cacheWrite) }, fmtTokens(row.cacheWrite)),
