@@ -40,6 +40,10 @@
     "node": ">=22.15.0"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mike-lee0120/dsh-cost-dashboard.git"
+  },
   "keywords": [
     "deepseek",
     "harness",

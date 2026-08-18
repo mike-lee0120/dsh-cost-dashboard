@@ -23,11 +23,11 @@ dsh plugin --profile web add <spec>
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-cost-dashboard
-dsh plugin --profile web add github:<user>/dsh-cost-dashboard
-dsh plugin --profile web add dsh-cost-dashboard
+dsh plugin --profile web add github:mike-lee0120/dsh-cost-dashboard
+dsh plugin --profile web add dsh-cost-dashboard  # once published to npm
 ```
 
-`dsh plugin add` runs pnpm in the profile directory and **automatically** appends any `dsh.bundle`-declaring package to `dsh.profile.bundles`. Restart `dsh web`, then open **Settings -> Cost Dashboard**.
+`dsh plugin add` runs pnpm in the profile directory and **automatically** appends any `dsh.bundle`-declaring package to `dsh.profile.bundles`. Restart `dsh web` and refresh the page, then open **Settings -> Cost Dashboard**.
 
 Remove with `dsh plugin --profile web remove dsh-cost-dashboard`.
 
@@ -42,7 +42,7 @@ Requires dsh `0.1.0-rc.7`+ and Node >= 22.15 (the `node:zlib` zstd API the host 
   - four disjoint buckets: uncached input (DeepSeek `prompt_tokens` with cache hits subtracted), cache read, cache write, output.
 - Model attribution: `assistant/message` carries `message.source.provider/model`; a bare usage chunk (failed request) is attributed to the latest `request/header` model.
 - Mid-session model switches are split correctly.
-- Run `node scripts/verify-totals.mjs` to reconcile against the official `session_projcache.json` (currently 26/26; an actively-writing session may drift by a live-write race, which is expected).
+- Run `node scripts/verify-totals.mjs` to reconcile against the official `session_projcache.json` (verified session-by-session in development; an actively-writing session may drift by a live-write race, which is expected).
 
 ## Pricing
 
@@ -76,7 +76,7 @@ Fields: `currency` (CNY|USD), `input` (cache-miss), `inputHit` (defaults to inpu
 
 ## Development
 
-Plain `.mjs`, zero build step (host uses only Node builtins; the client is a hand-written module-loader bundle). Restart `dsh web` after any change.
+Plain `.mjs`, zero build step (host uses only Node builtins; the client is a hand-written module-loader bundle). Restart `dsh web` and refresh the page after any change.
 
 ## Security
 

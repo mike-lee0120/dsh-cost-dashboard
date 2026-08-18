@@ -25,12 +25,12 @@ dsh plugin --profile web add <spec>
 # 本地路径开发安装
 dsh plugin --profile web add /path/to/dsh-cost-dashboard
 # GitHub
-dsh plugin --profile web add github:<user>/dsh-cost-dashboard
-# npm
+dsh plugin --profile web add github:mike-lee0120/dsh-cost-dashboard
+# npm（发布后可用）
 dsh plugin --profile web add dsh-cost-dashboard
 ```
 
-`dsh plugin add` 会在 profile 目录（`~/.dsh/profiles/web`）执行 pnpm 安装，并**自动**把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles`（无需手改 profile 配置）。安装后重启 `dsh web`，打开 **设置 → 费用看板**。
+`dsh plugin add` 会在 profile 目录（`~/.dsh/profiles/web`）执行 pnpm 安装，并**自动**把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles`（无需手改 profile 配置）。安装后重启 `dsh web` 并**刷新页面**，打开 **设置 → 费用看板**。
 
 卸载：`dsh plugin --profile web remove dsh-cost-dashboard`（自动移出 bundles）。
 
@@ -45,7 +45,7 @@ dsh plugin --profile web add dsh-cost-dashboard
   - 四个不相交桶：输入（未命中缓存，DeepSeek `prompt_tokens` 已扣除缓存命中）、缓存命中、缓存写入、输出。
 - 模型归属：`assistant/message` 自带 `message.source.provider/model`；仅有 usage chunk（失败请求）时归属最近一条 `request/header` 的模型。
 - 会话中途切换模型也能正确拆分到各模型。
-- 可运行 `node scripts/verify-totals.mjs` 与官方 `session_projcache.json` 逐会话对账（当前 26/26 一致；正在写入的活跃会话可能因实时时间差出现微小偏差，属正常）。
+- 可运行 `node scripts/verify-totals.mjs` 与官方 `session_projcache.json` 逐会话对账（开发环境实测逐会话一致；正在写入的活跃会话可能因实时时间差出现微小偏差，属正常）。
 
 ## 价格表
 
@@ -79,7 +79,7 @@ dsh plugin --profile web add dsh-cost-dashboard
 
 ## 开发
 
-纯 `.mjs` 零构建（host 侧仅 Node 内置模块，client 侧手写 module-loader bundle）。改动 host（`index.mjs`/`scan.mjs`/`pricing.mjs`/`routes.mjs`）或 client（`client.mjs`）后重启 `dsh web` 生效。
+纯 `.mjs` 零构建（host 侧仅 Node 内置模块，client 侧手写 module-loader bundle）。改动 host（`index.mjs`/`scan.mjs`/`pricing.mjs`/`routes.mjs`）或 client（`client.mjs`）后重启 `dsh web` 并刷新页面生效。
 
 ## 安全
 
