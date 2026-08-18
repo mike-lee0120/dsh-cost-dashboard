@@ -273,6 +273,32 @@ window.__ModuleLoader__.load({
 			return usd + cny / cnyPerUsd;
 		}
 
+		/** Local-timezone YYYY-MM-DD for padding empty lead-in days. */
+		function localDay(date) {
+			return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+		}
+
+		/** Zero-filled empty day used to pad the selected range. */
+		function emptyDay(date) {
+			return { date, input: 0, cacheRead: 0, cacheWrite: 0, output: 0, costByCurrency: {} };
+		}
+
+		/**
+		 * Slice the day series to the selected range and pad it with empty
+		 * lead-in days so 1W/1M/3M always render the full window.
+		 */
+		function padDays(days, count) {
+			const existing = days.slice(-count);
+			if (existing.length >= count) return existing;
+			const start = new Date(`${existing[0]?.date ?? localDay(new Date())}T00:00:00`);
+			const padded = [];
+			for (let i = 0; i < count - existing.length; i++) {
+				start.setDate(start.getDate() - 1);
+				padded.unshift(emptyDay(localDay(start)));
+			}
+			return [...padded, ...existing];
+		}
+
 		let echartsPromise = null;
 		/** Load the vendored ECharts bundle once from the host route. */
 		function ensureEcharts() {
@@ -523,7 +549,8 @@ window.__ModuleLoader__.load({
 
 			const summary = data?.summary;
 			const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-			const chartDays = useMemo(() => (data?.byDay ?? []).slice(-rangeDays), [data, rangeDays]);
+			const rangeLabel = range === "7d" ? t("range.week") : range === "30d" ? t("range.month") : t("range.quarter");
+			const chartDays = useMemo(() => padDays(data?.byDay ?? [], rangeDays), [data, rangeDays]);
 			const totalTokens = summary
 				? summary.totals.input + summary.totals.cacheRead + summary.totals.cacheWrite + summary.totals.output
 				: 0;
@@ -565,7 +592,7 @@ window.__ModuleLoader__.load({
 									el("button", { className: range === "7d" ? "cd-on" : "", onClick: () => setRange("7d") }, t("range.week")),
 									el("button", { className: range === "30d" ? "cd-on" : "", onClick: () => setRange("30d") }, t("range.month")),
 									el("button", { className: range === "90d" ? "cd-on" : "", onClick: () => setRange("90d") }, t("range.quarter"))),
-								el("span", { className: "cd-dim", style: { fontSize: 11 } }, t("chart.window", { n: chartDays.length })))),
+								el("span", { className: "cd-dim", style: { fontSize: 11 } }, rangeLabel))),
 						mode === "tokens"
 							? el("div", { className: "cd-chart" },
 								el(TokensChart, { days: chartDays, t }),
