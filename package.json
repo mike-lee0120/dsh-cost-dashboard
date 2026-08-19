@@ -18,6 +18,7 @@
     "client.mjs",
     "cordis.patch.yml",
     "vendor/echarts.min.js",
+    "assets",
     "README.md",
     "README.zh.md"
   ],

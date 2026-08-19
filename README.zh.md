@@ -4,6 +4,10 @@
 
 装在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）里的费用看板插件：汇总本机**全部会话**的模型输入 / 输出 / 缓存命中 token 用量，按价格表（含 DeepSeek 峰谷分时计价）计算费用，在 **设置 → 费用看板** 中以看板形式展示。
 
+![费用看板 - 总览](assets/screenshot-1.png)
+
+![费用看板 - 明细](assets/screenshot-2.png)
+
 ## 你会得到
 
 - **两个入口**：设置 → 费用看板（设置导航图标由 dsh 设置外壳按内置 id 硬编码，无法由插件自定义）；侧边栏底部另有**看板图标按钮**（数据网格样式），点击在面板中打开同一看板

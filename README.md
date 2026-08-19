@@ -4,6 +4,10 @@ English | [中文](README.zh.md)
 
 A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): aggregates model input / output / cache token usage across **all local sessions**, prices it with a built-in table (including DeepSeek peak/off-peak time-of-day pricing), and renders a dashboard under **Settings -> Cost Dashboard**.
 
+![Cost dashboard - overview](assets/screenshot-1.png)
+
+![Cost dashboard - details](assets/screenshot-2.png)
+
 ## What you get
 
 - **Two entry points**: Settings -> Cost Dashboard (the settings nav icons are hardcoded by the dsh settings shell, so plugins cannot customize them), plus a **sidebar footer icon button** (data-grid style) that opens the same dashboard in an anchored panel
