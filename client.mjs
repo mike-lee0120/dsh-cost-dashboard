@@ -556,16 +556,20 @@ window.__ModuleLoader__.load({
 
 			const load = useCallback(async () => {
 				try {
-					const [statsResponse, billingResponse] = await Promise.all([
-						fetch("/cost-dashboard/stats", { cache: "no-store" }),
-						fetch("/cost-dashboard/billing", { cache: "no-store" }),
-					]);
+					const statsResponse = await fetch("/cost-dashboard/stats", { cache: "no-store" });
 					const payload = await statsResponse.json();
 					if (!statsResponse.ok) throw new Error(payload?.error ?? `HTTP ${statsResponse.status}`);
-					const billingPayload = await billingResponse.json();
+					// Billing is optional and may be absent on older hosts - never let it break the dashboard.
+					let billingPayload = null;
+					try {
+						const billingResponse = await fetch("/cost-dashboard/billing", { cache: "no-store" });
+						if (billingResponse.ok) billingPayload = await billingResponse.json();
+					} catch {
+						billingPayload = null;
+					}
 					if (!alive.current) return;
 					setData(payload);
-					setBilling(billingResponse.ok ? billingPayload : null);
+					setBilling(billingPayload);
 					setError(null);
 				} catch (caught) {
 					if (!alive.current) return;
