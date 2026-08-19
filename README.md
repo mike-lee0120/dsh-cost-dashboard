@@ -4,10 +4,6 @@ English | [中文](README.zh.md)
 
 A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): aggregates model input / output / cache token usage across **all local sessions**, prices it with a built-in table (including DeepSeek peak/off-peak time-of-day pricing), and renders a dashboard under **Settings -> Cost Dashboard**.
 
-![Cost dashboard - trend & summary](assets/screenshot-en-1.png)
-
-![Cost dashboard - model & session breakdown](assets/screenshot-en-2.png)
-
 ## What you get
 
 - **Two entry points**: Settings -> Cost Dashboard (the settings nav icons are hardcoded by the dsh settings shell, so plugins cannot customize them), plus a **sidebar footer icon button** (data-grid style) that opens the same dashboard in an anchored panel
@@ -20,6 +16,10 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 - **Auto-synced catalog**: fills in models missing from builtin/overrides from the LiteLLM price JSON (24h TTL + disk cache, degrades on network failure); never overrides builtin or hand-written prices
 - **Actual billing (optional)**: with read-only provider keys configured, shows DeepSeek/OpenRouter real balances and OpenAI/Anthropic real spend next to the estimate; domestic cloud vendors (Volcengine/Alibaba/Tencent) are not integrated - prices come from the config file
 - **Auto refresh**: polls every 15s while open; the host re-reads only changed log files (mtime + size validated)
+
+![Cost dashboard - trend & summary](assets/screenshot-en-1.png)
+
+![Cost dashboard - model & session breakdown](assets/screenshot-en-2.png)
 
 ## Install
 
