@@ -6,9 +6,8 @@
 
 - [x] `package.json` 声明 `dsh.bundle.patch` + 根目录 `cordis.patch.yml` —— 已有
 - [x] 真实可运行代码、提交数 ≥ 10 —— 已有（24 commits）
+- [x] 给仓库添加 GitHub topic：`dsh-plugin` —— 已完成
 - [ ] 仓库创建满 1 天 —— 提 PR 前确认
-- [ ] 给仓库添加 GitHub topic：`dsh-plugin` —— 需要您在 GitHub 仓库页操作：
-  Repository 首页 → About 右侧 ⚙️ → Topics 输入 `dsh-plugin` 保存
 
 ## 提交流程
 
