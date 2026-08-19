@@ -34,8 +34,6 @@ dsh plugin --profile web add <spec>
 dsh plugin --profile web add /path/to/dsh-cost-dashboard
 # GitHub
 dsh plugin --profile web add github:mike-lee0120/dsh-cost-dashboard
-# npm（发布后可用）
-dsh plugin --profile web add dsh-cost-dashboard
 ```
 
 `dsh plugin add` 会在 profile 目录（`~/.dsh/profiles/web`）执行 pnpm 安装，并**自动**把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles`（无需手改 profile 配置）。安装后重启 `dsh web` 并**刷新页面**，打开 **设置 → 费用看板**。

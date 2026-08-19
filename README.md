@@ -32,7 +32,6 @@ dsh plugin --profile web add <spec>
 ```sh
 dsh plugin --profile web add /path/to/dsh-cost-dashboard
 dsh plugin --profile web add github:mike-lee0120/dsh-cost-dashboard
-dsh plugin --profile web add dsh-cost-dashboard  # once published to npm
 ```
 
 `dsh plugin add` runs pnpm in the profile directory and **automatically** appends any `dsh.bundle`-declaring package to `dsh.profile.bundles`. Restart `dsh web` and refresh the page, then open **Settings -> Cost Dashboard**.
