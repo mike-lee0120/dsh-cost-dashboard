@@ -17,9 +17,10 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 - **Actual billing (optional)**: with read-only provider keys configured, shows DeepSeek/OpenRouter real balances and OpenAI/Anthropic real spend next to the estimate; domestic cloud vendors (Volcengine/Alibaba/Tencent) are not integrated - prices come from the config file
 - **Auto refresh**: polls every 15s while open; the host re-reads only changed log files (mtime + size validated)
 
-![Cost dashboard - trend & summary](assets/screenshot-en-1.png)
-
-![Cost dashboard - model & session breakdown](assets/screenshot-en-2.png)
+<p align="center">
+  <img src="assets/screenshot-en-1.png" alt="Cost dashboard - trend & summary" width="49%" />
+  <img src="assets/screenshot-en-2.png" alt="Cost dashboard - model & session breakdown" width="49%" />
+</p>
 
 ## Install
 

@@ -17,9 +17,10 @@
 - **实际账单（可选）**：配置供应商只读密钥后，显示 DeepSeek/OpenRouter 真实余额、OpenAI/Anthropic 真实花费，并与估算折线对照；国内云厂商（火山/阿里/腾讯）不接 API，价格走配置文件
 - **自动刷新**：看板打开期间每 15 秒拉取一次；宿主侧只增量重扫有变化的日志文件（mtime + size 校验）
 
-![费用看板 - 趋势与汇总](assets/screenshot-1.png)
-
-![费用看板 - 按模型/会话明细](assets/screenshot-2.png)
+<p align="center">
+  <img src="assets/screenshot-1.png" alt="费用看板 - 趋势与汇总" width="49%" />
+  <img src="assets/screenshot-2.png" alt="费用看板 - 按模型/会话明细" width="49%" />
+</p>
 
 ## 安装
 
