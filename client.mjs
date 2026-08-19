@@ -93,6 +93,11 @@ window.__ModuleLoader__.load({
 			"meta.updated": "更新于 {time}",
 			"meta.errors": "{n} 个文件读取失败",
 			"meta.pricingErrors": "价格文件告警：{msg}",
+			"catalog.ok": "价目表 {source} · 同步于 {time} · {n} 个模型",
+			"catalog.stale": "价目表 {source} · 使用缓存（{time}）· {n} 个模型 · {msg}",
+			"catalog.error": "价目表同步失败：{msg}",
+			"catalog.refresh": "刷新价目",
+			"catalog.refreshing": "同步中…",
 		};
 
 		const en = {
@@ -159,6 +164,11 @@ window.__ModuleLoader__.load({
 			"meta.updated": "updated {time}",
 			"meta.errors": "{n} files failed to read",
 			"meta.pricingErrors": "pricing file warning: {msg}",
+			"catalog.ok": "prices {source} · synced {time} · {n} models",
+			"catalog.stale": "prices {source} · cached ({time}) · {n} models · {msg}",
+			"catalog.error": "price sync failed: {msg}",
+			"catalog.refresh": "Refresh prices",
+			"catalog.refreshing": "Syncing…",
 		};
 
 		const CSS = `
@@ -267,6 +277,16 @@ window.__ModuleLoader__.load({
 			if (!time) return "—";
 			const date = new Date(time);
 			return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+		}
+
+		/** Human status line for the auto-synced pricing catalog. */
+		function catalogStatusText(catalog, t) {
+			if (catalog?.error && catalog.modelCount === 0) return t("catalog.error", { msg: catalog.error });
+			const time = catalog?.fetchedAt ? fmtWhen(catalog.fetchedAt) : "—";
+			if (catalog?.stale && catalog?.error) {
+				return t("catalog.stale", { source: catalog.source ?? "litellm", time, n: catalog.modelCount ?? 0, msg: catalog.error });
+			}
+			return t("catalog.ok", { source: catalog?.source ?? "litellm", time, n: catalog?.modelCount ?? 0 });
 		}
 
 		function el(tag, props, ...children) {
@@ -555,6 +575,21 @@ window.__ModuleLoader__.load({
 				}
 			}, [editorText, load, t]);
 
+			const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+			const refreshCatalog = useCallback(async () => {
+				setCatalogRefreshing(true);
+				try {
+					const response = await fetch("/cost-dashboard/catalog/refresh", { method: "POST" });
+					const payload = await response.json();
+					if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+				} catch (caught) {
+					setError(caught instanceof Error ? caught.message : String(caught));
+				} finally {
+					setCatalogRefreshing(false);
+					load();
+				}
+			}, [load]);
+
 			const summary = data?.summary;
 			const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : 90;
 			const rangeLabel = range === "7d" ? t("range.week") : range === "30d" ? t("range.month") : t("range.quarter");
@@ -708,6 +743,8 @@ window.__ModuleLoader__.load({
 					data?.meta ? el("span", null, t("meta.scanMs", { n: data.meta.scanMs })) : null,
 					data?.meta ? el("span", null, t("meta.updated", { time: fmtWhen(data.meta.generatedAt) })) : null,
 					data?.meta?.errors?.length ? el("span", { title: data.meta.errors.join("\n") }, t("meta.errors", { n: data.meta.errors.length })) : null,
+					data?.catalog ? el("span", null, catalogStatusText(data.catalog, t)) : null,
+					el("button", { className: "cd-btn", style: { padding: "1px 8px", fontSize: 11 }, disabled: catalogRefreshing, onClick: refreshCatalog }, catalogRefreshing ? t("catalog.refreshing") : t("catalog.refresh")),
 					data?.pricingErrors?.length ? el("span", { title: data.pricingErrors.join("\n") }, t("meta.pricingErrors", { msg: data.pricingErrors[0] })) : null));
 		}
 

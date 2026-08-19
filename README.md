@@ -17,6 +17,7 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 - **By-model table**: tokens, cost, share per model
 - **By-session table**: sorted by cost, **one row per session-model pair** (a session that used several models appears on several rows, each with its own model, tokens and cost), with title, project directory, subagent badge
 - **Pricing editor**: edit the pricing JSON (including the FX rate) in-page; saves to `~/.dsh/cost-dashboard.json`, effective immediately
+- **Auto-synced catalog**: fills in models missing from builtin/overrides from the LiteLLM price JSON (24h TTL + disk cache, degrades on network failure); never overrides builtin or hand-written prices
 - **Auto refresh**: polls every 15s while open; the host re-reads only changed log files (mtime + size validated)
 
 ## Install
@@ -104,6 +105,12 @@ The in-dashboard **Pricing config** editor saves `~/.dsh/cost-dashboard.json` (p
 ```
 
 Fields: `fx.cnyPerUsd` (USD->CNY, default 6.79, used for cross-currency display); per model `currency` (CNY|USD), `input` (cache-miss), `inputHit` (defaults to input), `cacheWrite` (defaults to input), `output`; optional `peak` and `peakHours` (host-local hours; peak hours use peak rates, unset peak fields fall back to flat). The dashboard displays USD by default and converts CNY-listed prices at the FX rate; switching to CNY converts USD-listed prices the other way.
+
+### Auto-synced catalog
+
+- Beyond the builtin table, the dashboard fills missing models from the [LiteLLM price JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) (USD rates, converted for display via `fx`).
+- Priority: **user override > builtin > catalog** — the catalog only fills gaps and never overrides builtin peak pricing or your hand-written config.
+- Refreshed every 24h and cached at `~/.dsh/storages/cost-dashboard-catalog.json`; on network failure it degrades to the cache, the status is visible in the dashboard footer, and a "Refresh prices" button retries manually.
 
 ## Development
 

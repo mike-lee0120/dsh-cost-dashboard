@@ -283,12 +283,15 @@ export function saveOverride(home, value) {
 }
 
 /**
- * Effective pricing: builtin defaults with per-model whole-entry override.
- * Returns { models, fx, overrideErrors }.
+ * Effective pricing: catalog (lowest) -> builtin -> per-model user override.
+ * @param {string} home - dsh home directory.
+ * @param {{ models?: Record<string, object> }} [catalog] - synced LiteLLM catalog.
+ * @returns { models, fx, overrideErrors }
  */
-export function effectivePricing(home) {
+export function effectivePricing(home, catalog = undefined) {
 	const { doc, error } = loadOverride(home);
-	const models = { ...BUILTIN_PRICING.models };
+	// Lowest priority first: catalog, then builtin over it, then user override on top.
+	const models = { ...(catalog?.models ?? {}), ...BUILTIN_PRICING.models };
 	let fx = { ...DEFAULT_FX };
 	const overrideErrors = error ? [error] : [];
 	if (doc !== null) {

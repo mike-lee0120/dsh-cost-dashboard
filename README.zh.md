@@ -17,6 +17,7 @@
 - **按模型汇总表**：各模型的 token 用量、费用、占比
 - **按会话汇总表**：按费用排序，**每个会话按模型拆行**（一个会话用了多个模型就多行，各自显示模型、tokens 与费用），含标题、项目目录、子代理标记
 - **价格配置**：页面上直接编辑价格表 JSON（含汇率），保存到 `~/.dsh/cost-dashboard.json`，立即生效
+- **价目表自动同步**：从 LiteLLM 价目 JSON 自动补齐内置/覆盖里没有的模型（24 小时 TTL + 磁盘缓存，网络失败自动降级），**不覆盖**内置与手工价格
 - **自动刷新**：看板打开期间每 15 秒拉取一次；宿主侧只增量重扫有变化的日志文件（mtime + size 校验）
 
 ## 安装
@@ -107,6 +108,12 @@ dsh plugin --profile web add dsh-cost-dashboard
 ```
 
 字段：`fx.cnyPerUsd`（美元兑人民币，默认 6.79，用于跨币种换算显示）；每个模型 `currency`（CNY|USD）、`input`（未命中输入价）、`inputHit`（缓存命中价，缺省=input）、`cacheWrite`（缓存写价，缺省=input）、`output`；可选 `peak` 与 `peakHours`（宿主本地时间，命中峰时用 peak 费率，peak 未写的字段回落平价）。看板默认以 USD 显示，CNY 标价按汇率折算；切换 CNY 时 USD 标价按汇率折算。
+
+### 价目表自动同步
+
+- 内置价之外，看板会从 [LiteLLM 价目 JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) 自动补齐缺失模型（美元价，配合 `fx` 换算显示）。
+- 优先级：**手工覆盖 > 内置价 > 目录价**——目录只填缺口，永不覆盖内置峰谷价或您的手工配置。
+- 每 24 小时刷新一次，结果缓存到 `~/.dsh/storages/cost-dashboard-catalog.json`；断网时自动降级为缓存，失败状态在看板页脚可见，可点「刷新价目」手动重试。
 
 ## 开发
 

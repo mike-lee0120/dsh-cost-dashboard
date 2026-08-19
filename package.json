@@ -14,6 +14,7 @@
     "index.mjs",
     "scan.mjs",
     "pricing.mjs",
+    "catalog.mjs",
     "routes.mjs",
     "client.mjs",
     "cordis.patch.yml",

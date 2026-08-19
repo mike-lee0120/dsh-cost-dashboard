@@ -9,6 +9,7 @@
  * an Origin==Host check (helpers adapted from dshmarket, MIT).
  */
 import { readFileSync } from 'node:fs';
+import { loadCatalog } from './catalog.mjs';
 import { dshHome, scanAll, aggregate, zstdSupported } from './scan.mjs';
 import {
 	BUILTIN_PRICING,
@@ -132,12 +133,13 @@ export function mountRoutes(host) {
 				}
 				try {
 					const started = Date.now();
-					const { records, errors, files } = await ensureScan();
-					const pricing = effectivePricing(home);
+					const [catalog, { records, errors, files }] = await Promise.all([loadCatalog(home), ensureScan()]);
+					const pricing = effectivePricing(home, catalog);
 					const stats = aggregate(records, pricing.models);
 					sendJson(response, 200, {
 						...stats,
 						fx: pricing.fx,
+						catalog: catalog.meta,
 						pricingErrors: pricing.overrideErrors,
 						meta: { generatedAt: Date.now(), files, scanMs: Date.now() - started, errors: errors.slice(0, 20) },
 					});
@@ -151,13 +153,14 @@ export function mountRoutes(host) {
 			path: '/cost-dashboard/pricing',
 			handler: async (request, response) => {
 				if (request.method === 'GET') {
-					const { doc, error } = loadOverride(home);
-					const pricing = effectivePricing(home);
+					const [catalog, { doc, error }] = await Promise.all([loadCatalog(home), Promise.resolve(loadOverride(home))]);
+					const pricing = effectivePricing(home, catalog);
 					sendJson(response, 200, {
 						builtin: BUILTIN_PRICING,
 						override: doc,
 						overrideError: error,
 						fx: pricing.fx,
+						catalog: catalog.meta,
 						effective: { models: pricing.models },
 					});
 					return;
@@ -190,16 +193,39 @@ export function mountRoutes(host) {
 						return;
 					}
 					saveOverride(home, { fx, models: parsed.models });
-					const pricing = effectivePricing(home);
+					const catalog = await loadCatalog(home);
+					const pricing = effectivePricing(home, catalog);
 					sendJson(response, 200, {
 						ok: true,
 						saved: overridePath(home),
 						warnings: errors,
 						fx: pricing.fx,
+						catalog: catalog.meta,
 						effective: { models: pricing.models },
 					});
 				} catch (error) {
 					sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+				}
+			},
+		}),
+		host.webServer.register({
+			kind: 'exact',
+			path: '/cost-dashboard/catalog/refresh',
+			handler: async (request, response) => {
+				if (request.method !== 'POST') {
+					response.writeHead(405, { allow: 'POST' });
+					response.end();
+					return;
+				}
+				if (!sameOrigin(request)) {
+					sendJson(response, 403, { error: 'untrusted origin' });
+					return;
+				}
+				try {
+					const catalog = await loadCatalog(home, { force: true });
+					sendJson(response, 200, { ok: true, catalog: catalog.meta });
+				} catch (error) {
+					sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
 				}
 			},
 		}),
