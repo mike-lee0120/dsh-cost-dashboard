@@ -10,6 +10,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { loadCatalog } from './catalog.mjs';
+import { loadBilling, loadCredentials, saveCredentials, PROVIDERS } from './billing.mjs';
 import { dshHome, scanAll, aggregate, zstdSupported } from './scan.mjs';
 import {
 	BUILTIN_PRICING,
@@ -226,6 +227,83 @@ export function mountRoutes(host) {
 					sendJson(response, 200, { ok: true, catalog: catalog.meta });
 				} catch (error) {
 					sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+				}
+			},
+		}),
+		host.webServer.register({
+			kind: 'exact',
+			path: '/cost-dashboard/billing',
+			handler: async (request, response) => {
+				if (request.method !== 'GET') {
+					response.writeHead(405, { allow: 'GET' });
+					response.end();
+					return;
+				}
+				try {
+					const billing = await loadBilling(home);
+					sendJson(response, 200, billing);
+				} catch (error) {
+					sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+				}
+			},
+		}),
+		host.webServer.register({
+			kind: 'exact',
+			path: '/cost-dashboard/billing/refresh',
+			handler: async (request, response) => {
+				if (request.method !== 'POST') {
+					response.writeHead(405, { allow: 'POST' });
+					response.end();
+					return;
+				}
+				if (!sameOrigin(request)) {
+					sendJson(response, 403, { error: 'untrusted origin' });
+					return;
+				}
+				try {
+					const billing = await loadBilling(home, { force: true });
+					sendJson(response, 200, { ok: true, ...billing });
+				} catch (error) {
+					sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+				}
+			},
+		}),
+		host.webServer.register({
+			kind: 'exact',
+			path: '/cost-dashboard/billing/credentials',
+			handler: async (request, response) => {
+				if (request.method === 'GET') {
+					sendJson(response, 200, { providers: loadCredentials(home).providers, known: Object.keys(PROVIDERS) });
+					return;
+				}
+				if (request.method !== 'POST') {
+					response.writeHead(405, { allow: 'GET, POST' });
+					response.end();
+					return;
+				}
+				if (!sameOrigin(request)) {
+					sendJson(response, 403, { error: 'untrusted origin' });
+					return;
+				}
+				try {
+					const body = await readJsonBody(request, 64 * 1024);
+					const incoming = body?.providers;
+					if (incoming === null || typeof incoming !== 'object' || Array.isArray(incoming)) {
+						sendJson(response, 400, { error: 'body must be { "providers": { "<id>": { "apiKey"|"adminKey": "..." } } }' });
+						return;
+					}
+					const providers = {};
+					for (const [id, cfg] of Object.entries(incoming)) {
+						if (PROVIDERS[id] === undefined) continue;
+						if (cfg === null || typeof cfg !== 'object') continue;
+						if (typeof cfg.apiKey === 'string' && cfg.apiKey !== '') providers[id] = { apiKey: cfg.apiKey };
+						else if (typeof cfg.adminKey === 'string' && cfg.adminKey !== '') providers[id] = { adminKey: cfg.adminKey };
+					}
+					saveCredentials(home, providers);
+					await loadBilling(home, { force: true });
+					sendJson(response, 200, { ok: true, providers: Object.keys(providers), known: Object.keys(PROVIDERS) });
+				} catch (error) {
+					sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
 				}
 			},
 		}),

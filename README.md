@@ -18,6 +18,7 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 - **By-session table**: sorted by cost, **one row per session-model pair** (a session that used several models appears on several rows, each with its own model, tokens and cost), with title, project directory, subagent badge
 - **Pricing editor**: edit the pricing JSON (including the FX rate) in-page; saves to `~/.dsh/cost-dashboard.json`, effective immediately
 - **Auto-synced catalog**: fills in models missing from builtin/overrides from the LiteLLM price JSON (24h TTL + disk cache, degrades on network failure); never overrides builtin or hand-written prices
+- **Actual billing (optional)**: with read-only provider keys configured, shows DeepSeek/OpenRouter real balances and OpenAI/Anthropic real spend next to the estimate; domestic cloud vendors (Volcengine/Alibaba/Tencent) are not integrated - prices come from the config file
 - **Auto refresh**: polls every 15s while open; the host re-reads only changed log files (mtime + size validated)
 
 ## Install
@@ -111,6 +112,25 @@ Fields: `fx.cnyPerUsd` (USD->CNY, default 6.79, used for cross-currency display)
 - Beyond the builtin table, the dashboard fills missing models from the [LiteLLM price JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) (USD rates, converted for display via `fx`).
 - Priority: **user override > builtin > catalog** — the catalog only fills gaps and never overrides builtin peak pricing or your hand-written config.
 - Refreshed every 24h and cached at `~/.dsh/storages/cost-dashboard-catalog.json`; on network failure it degrades to the cache, the status is visible in the dashboard footer, and a "Refresh prices" button retries manually.
+
+### Actual billing (optional)
+
+- Expand the **Actual billing** section and configure read-only provider keys to show real balances and spend alongside the estimate.
+- Supported: **DeepSeek** `/user/balance` (balance), **OpenRouter** `/api/v1/key` (credits), **OpenAI** Cost API (daily spend), **Anthropic** Cost Report (daily spend).
+- Credentials are stored at `~/.dsh/cost-dashboard-credentials.json` (mode 0600):
+
+```json
+{
+  "providers": {
+    "deepseek": { "apiKey": "sk-..." },
+    "openrouter": { "apiKey": "sk-or-..." },
+    "openai": { "adminKey": "sk-admin-..." },
+    "anthropic": { "adminKey": "sk-ant-admin-..." }
+  }
+}
+```
+
+- Use read-only/billing-scoped keys only; remove an entry to stop fetching it. Domestic cloud vendors (Volcengine/Alibaba/Tencent) are not integrated - their prices live in the pricing config.
 
 ## Development
 

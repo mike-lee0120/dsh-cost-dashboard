@@ -18,6 +18,7 @@
 - **按会话汇总表**：按费用排序，**每个会话按模型拆行**（一个会话用了多个模型就多行，各自显示模型、tokens 与费用），含标题、项目目录、子代理标记
 - **价格配置**：页面上直接编辑价格表 JSON（含汇率），保存到 `~/.dsh/cost-dashboard.json`，立即生效
 - **价目表自动同步**：从 LiteLLM 价目 JSON 自动补齐内置/覆盖里没有的模型（24 小时 TTL + 磁盘缓存，网络失败自动降级），**不覆盖**内置与手工价格
+- **实际账单（可选）**：配置供应商只读密钥后，显示 DeepSeek/OpenRouter 真实余额、OpenAI/Anthropic 真实花费，并与估算折线对照；国内云厂商（火山/阿里/腾讯）不接 API，价格走配置文件
 - **自动刷新**：看板打开期间每 15 秒拉取一次；宿主侧只增量重扫有变化的日志文件（mtime + size 校验）
 
 ## 安装
@@ -114,6 +115,25 @@ dsh plugin --profile web add dsh-cost-dashboard
 - 内置价之外，看板会从 [LiteLLM 价目 JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) 自动补齐缺失模型（美元价，配合 `fx` 换算显示）。
 - 优先级：**手工覆盖 > 内置价 > 目录价**——目录只填缺口，永不覆盖内置峰谷价或您的手工配置。
 - 每 24 小时刷新一次，结果缓存到 `~/.dsh/storages/cost-dashboard-catalog.json`；断网时自动降级为缓存，失败状态在看板页脚可见，可点「刷新价目」手动重试。
+
+### 实际账单（可选）
+
+- 展开「实际账单」区块，配置供应商**只读**密钥后可显示真实余额与花费，与估算折线对照。
+- 支持：**DeepSeek** `/user/balance`（余额）、**OpenRouter** `/api/v1/key`（额度）、**OpenAI** Cost API（日花费）、**Anthropic** Cost Report（日花费）。
+- 凭证保存到 `~/.dsh/cost-dashboard-credentials.json`（0600 权限），格式：
+
+```json
+{
+  "providers": {
+    "deepseek": { "apiKey": "sk-..." },
+    "openrouter": { "apiKey": "sk-or-..." },
+    "openai": { "adminKey": "sk-admin-..." },
+    "anthropic": { "adminKey": "sk-ant-admin-..." }
+  }
+}
+```
+
+- 凭证为**只读/账单级**密钥，请勿使用高权限密钥；删除对应条目即可停止拉取。国内云厂商（火山/阿里/腾讯）不接 API，其价格在「价格配置」里维护。
 
 ## 开发
 

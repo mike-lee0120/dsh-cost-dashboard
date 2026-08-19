@@ -98,6 +98,19 @@ window.__ModuleLoader__.load({
 			"catalog.error": "价目表同步失败：{msg}",
 			"catalog.refresh": "刷新价目",
 			"catalog.refreshing": "同步中…",
+			"billing.title": "实际账单",
+			"billing.hint": "可选：配置供应商只读密钥，显示真实余额与花费，与估算对照。凭证存于 ~/.dsh/cost-dashboard-credentials.json（0600）。国内云厂商（火山/阿里/腾讯）不接 API，价格走配置文件。",
+			"billing.balance": "{label} 余额",
+			"billing.usage": "{label} 已用 {usage} / 上限 {limit}",
+			"billing.credentials": "凭证",
+			"billing.save": "保存凭证",
+			"billing.saved": "已保存 ✓",
+			"billing.refresh": "刷新账单",
+			"billing.refreshing": "刷新中…",
+			"billing.actual": "实际",
+			"billing.estimated": "估算",
+			"billing.noData": "配置密钥后显示实际余额与花费",
+			"billing.errors": "账单错误：{msg}",
 		};
 
 		const en = {
@@ -169,6 +182,19 @@ window.__ModuleLoader__.load({
 			"catalog.error": "price sync failed: {msg}",
 			"catalog.refresh": "Refresh prices",
 			"catalog.refreshing": "Syncing…",
+			"billing.title": "Actual billing",
+			"billing.hint": "Optional: configure read-only provider keys to show real balances and spend next to the estimate. Credentials are stored at ~/.dsh/cost-dashboard-credentials.json (0600). Domestic cloud vendors (Volcengine/Alibaba/Tencent) are not integrated - their prices come from the config file.",
+			"billing.balance": "{label} balance",
+			"billing.usage": "{label} used {usage} / limit {limit}",
+			"billing.credentials": "Credentials",
+			"billing.save": "Save credentials",
+			"billing.saved": "Saved ✓",
+			"billing.refresh": "Refresh billing",
+			"billing.refreshing": "Refreshing…",
+			"billing.actual": "Actual",
+			"billing.estimated": "Estimate",
+			"billing.noData": "Configure keys to show real balances and spend",
+			"billing.errors": "Billing errors: {msg}",
 		};
 
 		const CSS = `
@@ -519,17 +545,27 @@ window.__ModuleLoader__.load({
 			const [editorOpen, setEditorOpen] = useState(false);
 			const [editorText, setEditorText] = useState("");
 			const [editorStatus, setEditorStatus] = useState(null);
+			const [billing, setBilling] = useState(null);
+			const [billingOpen, setBillingOpen] = useState(false);
+			const [billingText, setBillingText] = useState("");
+			const [billingStatus, setBillingStatus] = useState(null);
+			const [billingRefreshing, setBillingRefreshing] = useState(false);
 			const alive = useRef(true);
 
 			const fx = data?.fx?.cnyPerUsd ?? DEFAULT_CNY_PER_USD;
 
 			const load = useCallback(async () => {
 				try {
-					const response = await fetch("/cost-dashboard/stats", { cache: "no-store" });
-					const payload = await response.json();
-					if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+					const [statsResponse, billingResponse] = await Promise.all([
+						fetch("/cost-dashboard/stats", { cache: "no-store" }),
+						fetch("/cost-dashboard/billing", { cache: "no-store" }),
+					]);
+					const payload = await statsResponse.json();
+					if (!statsResponse.ok) throw new Error(payload?.error ?? `HTTP ${statsResponse.status}`);
+					const billingPayload = await billingResponse.json();
 					if (!alive.current) return;
 					setData(payload);
+					setBilling(billingResponse.ok ? billingPayload : null);
 					setError(null);
 				} catch (caught) {
 					if (!alive.current) return;
@@ -590,6 +626,50 @@ window.__ModuleLoader__.load({
 				}
 			}, [load]);
 
+			const loadBillingCredentials = useCallback(async () => {
+				const response = await fetch("/cost-dashboard/billing/credentials", { cache: "no-store" });
+				const payload = await response.json();
+				if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+				setBillingText(JSON.stringify({ providers: payload.providers ?? {} }, null, 2));
+			}, []);
+
+			const saveBillingCredentials = useCallback(async () => {
+				setBillingStatus({ kind: "busy" });
+				try {
+					let parsed;
+					try {
+						parsed = JSON.parse(billingText);
+					} catch (caught) {
+						throw new Error(`invalid JSON: ${caught.message}`);
+					}
+					const response = await fetch("/cost-dashboard/billing/credentials", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ providers: parsed.providers ?? {} }),
+					});
+					const payload = await response.json();
+					if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+					setBillingStatus({ kind: "ok", text: t("billing.saved") });
+					load();
+				} catch (caught) {
+					setBillingStatus({ kind: "error", text: caught instanceof Error ? caught.message : String(caught) });
+				}
+			}, [billingText, load, t]);
+
+			const refreshBilling = useCallback(async () => {
+				setBillingRefreshing(true);
+				try {
+					const response = await fetch("/cost-dashboard/billing/refresh", { method: "POST" });
+					const payload = await response.json();
+					if (!response.ok) throw new Error(payload?.error ?? `HTTP ${response.status}`);
+					setBilling(payload);
+				} catch (caught) {
+					setBilling({ ...billing, meta: { ...(billing?.meta ?? {}), errors: [caught instanceof Error ? caught.message : String(caught)] } });
+				} finally {
+					setBillingRefreshing(false);
+				}
+			}, [billing]);
+
 			const summary = data?.summary;
 			const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : 90;
 			const rangeLabel = range === "7d" ? t("range.week") : range === "30d" ? t("range.month") : t("range.quarter");
@@ -621,6 +701,31 @@ window.__ModuleLoader__.load({
 			const todayCost = summary ? inCurrency(summary.todayCostByCurrency, currency, fx) : 0;
 			const promptTokens = summary ? summary.totals.input + summary.totals.cacheRead : 0;
 			const hitRate = promptTokens > 0 ? (summary.totals.cacheRead / promptTokens) * 100 : 0;
+
+			// Actual-vs-estimate comparison series (aligned to the selected range).
+			const billingComparison = useMemo(() => {
+				const daily = billing?.daily ?? [];
+				if (daily.length === 0 || chartDays.length === 0) return null;
+				const actualByDay = new Map();
+				for (const row of daily) {
+					let bucket = actualByDay.get(row.date);
+					if (bucket === undefined) {
+						bucket = {};
+						actualByDay.set(row.date, bucket);
+					}
+					bucket[row.currency] = (bucket[row.currency] ?? 0) + row.cost;
+				}
+				const theme = chartTheme();
+				const actual = chartDays.map((day) => inCurrency(actualByDay.get(day.date), currency, fx));
+				const estimated = chartDays.map((day) => inCurrency(day.costByCurrency, currency, fx));
+				return {
+					...baseLineOption(chartDays, theme, (value) => fmtCost(currency, value)),
+					series: [
+						lineSeries(t("billing.estimated"), estimated, COLORS.output),
+						lineSeries(t("billing.actual"), actual, COLORS.cacheRead),
+					],
+				};
+			}, [billing, chartDays, currency, fx, t]);
 
 			if (loading && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-empty" }, t("loading")));
 			if (error !== null && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-error" }, t("error.load", { msg: error })));
@@ -738,6 +843,32 @@ window.__ModuleLoader__.load({
 							el("button", { className: "cd-btn cd-btnPrimary", disabled: editorStatus?.kind === "busy", onClick: savePricing }, t("pricing.save")),
 							el("button", { className: "cd-btn", onClick: () => loadPricing().catch((caught) => setEditorStatus({ kind: "error", text: String(caught) })) }, t("pricing.reload")),
 							editorStatus?.text ? el("span", { className: editorStatus.kind === "error" ? "cd-error" : "cd-saved", style: { padding: "2px 6px" } }, editorStatus.text) : null))),
+				el("details", { className: "cd-details", open: billingOpen, onToggle: (event) => {
+					setBillingOpen(event.currentTarget.open);
+					if (event.currentTarget.open && billingText === "") loadBillingCredentials().catch(() => {});
+				} },
+					el("summary", null, t("billing.title")),
+					el("div", { className: "cd-editor" },
+						el("div", { className: "cd-dim", style: { fontSize: 11.5 } }, t("billing.hint")),
+						(billing?.balances?.length ?? 0) > 0 ? el("div", { className: "cd-cards" },
+							billing.balances.map((balance) => el(Card, {
+								key: balance.provider,
+								label: t("billing.balance", { label: balance.label }),
+								value: fmtCost(balance.currency, balance.amount),
+								hint: balance.usage !== undefined ? t("billing.usage", { label: balance.label, usage: fmtCost(balance.currency, balance.usage), limit: fmtCost(balance.currency, balance.limit) }) : undefined,
+							}))) : null,
+						billingComparison !== null ? el("div", { className: "cd-chartCard", style: { marginTop: 8 } },
+							el("div", { className: "cd-chartRow", style: { marginBottom: 6 } },
+								el("span", { className: "cd-chartLabel" }, `${t("billing.estimated")} / ${t("billing.actual")}`),
+								el("button", { className: "cd-btn", style: { padding: "1px 8px", fontSize: 11 }, disabled: billingRefreshing, onClick: refreshBilling }, billingRefreshing ? t("billing.refreshing") : t("billing.refresh"))),
+							el(EChart, { option: billingComparison, height: 160 })) : null,
+						(billing?.daily?.length ?? 0) === 0 && (billing?.balances?.length ?? 0) === 0 ? el("div", { className: "cd-empty" }, t("billing.noData")) : null,
+						(billing?.meta?.errors?.length ?? 0) > 0 ? el("div", { className: "cd-notice" }, t("billing.errors", { msg: billing.meta.errors.join("；") })) : null,
+						el("div", { className: "cd-editorRow", style: { marginTop: 4 } }, el("span", { className: "cd-dim", style: { fontSize: 11.5 } }, t("billing.credentials"))),
+						el("textarea", { spellCheck: false, value: billingText, onChange: (event) => setBillingText(event.target.value) }),
+						el("div", { className: "cd-editorRow" },
+							el("button", { className: "cd-btn cd-btnPrimary", disabled: billingStatus?.kind === "busy", onClick: saveBillingCredentials }, t("billing.save")),
+							billingStatus?.text ? el("span", { className: billingStatus.kind === "error" ? "cd-error" : "cd-saved", style: { padding: "2px 6px" } }, billingStatus.text) : null))),
 				el("div", { className: "cd-meta" },
 					data?.meta ? el("span", null, t("meta.files", { n: data.meta.files })) : null,
 					data?.meta ? el("span", null, t("meta.scanMs", { n: data.meta.scanMs })) : null,
