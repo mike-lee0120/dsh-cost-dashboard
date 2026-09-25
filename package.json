@@ -1,6 +1,6 @@
 {
   "name": "dsh-cost-dashboard",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Cost dashboard for DeepSeek Harness - model spend, tokens and cache usage across all sessions (settings section). DSH 费用看板：汇总全部会话的模型输入/输出/缓存 token 用量并按价格表计费。",
   "type": "module",
   "main": "index.mjs",
