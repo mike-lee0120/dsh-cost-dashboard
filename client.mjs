@@ -10,8 +10,8 @@
  *
  * The dashboard fetches aggregated usage and cost from the host routes and
  * renders summary cards, a per-day chart, per-model and per-session tables,
- * and a pricing/currency override editor. Costs convert between USD and CNY
- * with the configurable `fx.cnyPerUsd` rate; default display currency is USD.
+ * and a pricing override editor. Every amount is shown in CNY: an entry quoted
+ * in USD converts with the configurable `fx.cnyPerUsd` rate.
  *
  * Plain React.createElement throughout - the module-loader factory format has
  * no build step (see @deepseek-ai/dsh-client-modules).
@@ -43,7 +43,6 @@ window.__ModuleLoader__.load({
 			"card.inputHint": "未命中缓存",
 			"card.cacheRead": "缓存命中率",
 			"card.cacheReadHint": "命中 {hit} / 未命中 {miss}",
-			"card.cacheWrite": "缓存写入 tokens",
 			"card.output": "输出 tokens",
 			"card.sessions": "会话数",
 			"card.sessionsHint": "{n} 个有用量记录",
@@ -56,9 +55,8 @@ window.__ModuleLoader__.load({
 			"range.quarter": "近三月",
 			"legend.input": "输入",
 			"legend.cacheRead": "缓存命中",
-			"legend.cacheWrite": "缓存写入",
 			"legend.output": "输出",
-			"legend.nonCache": "输入/缓存写入/输出",
+			"legend.nonCache": "输入/输出",
 			"table.models": "按模型汇总",
 			"table.sessions": "按会话汇总",
 			"table.sessionsHint": "显示前 {shown} / 共 {total} 条（按费用排序）",
@@ -66,7 +64,6 @@ window.__ModuleLoader__.load({
 			"col.provider": "供应商",
 			"col.input": "输入",
 			"col.cacheRead": "缓存命中率",
-			"col.cacheWrite": "缓存写入",
 			"col.output": "输出",
 			"col.cost": "费用",
 			"col.share": "占比",
@@ -79,7 +76,7 @@ window.__ModuleLoader__.load({
 			untitled: "（无标题）",
 			multiModel: "共 {n} 个模型",
 			"pricing.title": "价格配置",
-			"pricing.hint": "保存到 ~/.dsh/cost-dashboard.json，按模型名整体覆盖内置价格。单位：每百万 tokens。字段：fx.cnyPerUsd（美元兑人民币，默认 6.79）；每个模型 currency (CNY|USD)、input、inputHit、cacheWrite、output；可选 peak {...} 与 peakHours [[9,12],[14,18]]（宿主本地时间，命中峰时改用 peak 费率，peak 未写的字段回落平价）。",
+			"pricing.hint": "保存到 ~/.dsh/cost-dashboard.json，按模型名整体覆盖内置价格。单位：每百万 tokens；看板一律显示人民币，USD 条目按 fx.cnyPerUsd 折算。字段：fx.cnyPerUsd（美元兑人民币，默认 6.79）；每个模型 currency (CNY|USD)、input、inputHit、cacheWrite、output；可选 peak {...} 与峰时窗口 peakHours [[9,12],[14,18]]（北京时间）、peakWeekdays [1,2,3,4,5]（0=周日，默认周一至周五）、peakExcludeDates [\"2026-10-01\"]（法定节假日按空闲计价）；peak 未写的字段回落平价。",
 			"pricing.reload": "重新载入",
 			"pricing.save": "保存",
 			"pricing.saved": "已保存 ✓",
@@ -127,7 +124,6 @@ window.__ModuleLoader__.load({
 			"card.inputHint": "cache miss",
 			"card.cacheRead": "Cache hit rate",
 			"card.cacheReadHint": "hit {hit} / miss {miss}",
-			"card.cacheWrite": "Cache write tokens",
 			"card.output": "Output tokens",
 			"card.sessions": "Sessions",
 			"card.sessionsHint": "{n} with usage",
@@ -140,9 +136,8 @@ window.__ModuleLoader__.load({
 			"range.quarter": "3M",
 			"legend.input": "input",
 			"legend.cacheRead": "cache read",
-			"legend.cacheWrite": "cache write",
 			"legend.output": "output",
-			"legend.nonCache": "input / cache write / output",
+			"legend.nonCache": "input / output",
 			"table.models": "By model",
 			"table.sessions": "By session",
 			"table.sessionsHint": "showing {shown} of {total} rows (by cost)",
@@ -150,7 +145,6 @@ window.__ModuleLoader__.load({
 			"col.provider": "Provider",
 			"col.input": "Input",
 			"col.cacheRead": "Cache hit",
-			"col.cacheWrite": "Cache write",
 			"col.output": "Output",
 			"col.cost": "Cost",
 			"col.share": "Share",
@@ -163,7 +157,7 @@ window.__ModuleLoader__.load({
 			untitled: "(untitled)",
 			multiModel: "{n} models",
 			"pricing.title": "Pricing config",
-			"pricing.hint": "Saves to ~/.dsh/cost-dashboard.json; each model entry wholly overrides the builtin one. Rates per 1M tokens. Fields: fx.cnyPerUsd (USD->CNY, default 6.79); per model currency (CNY|USD), input, inputHit, cacheWrite, output; optional peak {...} and peakHours [[9,12],[14,18]] (host-local clock; peak hours use peak rates, unset peak fields fall back to flat).",
+			"pricing.hint": "Saves to ~/.dsh/cost-dashboard.json; each model entry wholly overrides the builtin one. Rates per 1M tokens; the dashboard always reports CNY, so a USD entry converts with fx.cnyPerUsd. Fields: fx.cnyPerUsd (USD->CNY, default 6.79); per model currency (CNY|USD), input, inputHit, cacheWrite, output; optional peak {...} with its window peakHours [[9,12],[14,18]] (Beijing time), peakWeekdays [1,2,3,4,5] (0 = Sunday, weekdays by default) and peakExcludeDates [\"2026-10-01\"] (statutory holidays bill off-peak); unset peak fields fall back to flat.",
 			"pricing.reload": "Reload",
 			"pricing.save": "Save",
 			"pricing.saved": "Saved ✓",
@@ -279,8 +273,9 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 
-		const COLORS = { input: "#4e83ff", cacheRead: "#23a55a", cacheWrite: "#f5a623", output: "#9d7bd8" };
-		const CURRENCY_SYMBOLS = { CNY: "¥", USD: "$" };
+		const COLORS = { input: "#4e83ff", cacheRead: "#23a55a", output: "#9d7bd8" };
+		/** Every amount the dashboard shows is CNY; a USD entry converts at this rate. */
+		const CNY = "¥";
 		const DEFAULT_CNY_PER_USD = 6.79;
 
 		function fmtTokens(value) {
@@ -290,13 +285,12 @@ window.__ModuleLoader__.load({
 			return String(value);
 		}
 
-		function fmtCost(currency, amount) {
-			const symbol = CURRENCY_SYMBOLS[currency] ?? "";
+		function fmtCost(amount) {
 			const abs = Math.abs(amount);
-			if (abs === 0) return `${symbol}0.00`;
-			if (abs < 0.01) return `${symbol}${amount.toFixed(4)}`;
-			if (abs >= 10000) return symbol + Math.round(amount).toLocaleString();
-			return `${symbol}${amount.toFixed(2)}`;
+			if (abs === 0) return `${CNY}0.00`;
+			if (abs < 0.01) return `${CNY}${amount.toFixed(4)}`;
+			if (abs >= 10000) return CNY + Math.round(amount).toLocaleString();
+			return `${CNY}${amount.toFixed(2)}`;
 		}
 
 		function fmtWhen(time) {
@@ -319,12 +313,13 @@ window.__ModuleLoader__.load({
 			return h(tag, props ?? {}, ...children);
 		}
 
-		/** Convert a {CNY,USD} cost map into one number in the target currency. */
-		function inCurrency(byCurrency, currency, cnyPerUsd) {
-			const cny = byCurrency?.CNY ?? 0;
-			const usd = byCurrency?.USD ?? 0;
-			if (currency === "CNY") return cny + usd * cnyPerUsd;
-			return usd + cny / cnyPerUsd;
+		/**
+		 * CNY-equivalent of one {CNY,USD} cost map. The host keeps the source
+		 * currency of each pricing entry (imported catalogs quote USD), and this
+		 * is the single place the dashboard converts it for display.
+		 */
+		function toCny(byCurrency, cnyPerUsd) {
+			return (byCurrency?.CNY ?? 0) + (byCurrency?.USD ?? 0) * cnyPerUsd;
 		}
 
 		/** Local-timezone YYYY-MM-DD for padding empty lead-in days. */
@@ -500,7 +495,6 @@ window.__ModuleLoader__.load({
 				...baseLineOption(days, theme, formatTokens),
 				series: [
 					lineSeries(t("legend.input"), days.map((day) => day.input), COLORS.input),
-					lineSeries(t("legend.cacheWrite"), days.map((day) => day.cacheWrite), COLORS.cacheWrite),
 					lineSeries(t("legend.output"), days.map((day) => day.output), COLORS.output),
 				],
 			};
@@ -515,14 +509,13 @@ window.__ModuleLoader__.load({
 				el(EChart, { option: cacheOption, height: 96 }));
 		}
 
-		/** Daily cost trend as one area line in the selected currency. */
-		function CostChart({ days, currency, cnyPerUsd, t }) {
+		/** Daily cost trend as one area line, always in CNY. */
+		function CostChart({ days, cnyPerUsd, t }) {
 			if (days.length === 0) return null;
 			const theme = chartTheme();
-			const formatCost = (value) => fmtCost(currency, value);
 			const option = {
-				...baseLineOption(days, theme, formatCost),
-				series: [areaSeries(CURRENCY_SYMBOLS[currency] ?? currency, days.map((day) => inCurrency(day.costByCurrency, currency, cnyPerUsd)), COLORS.input)],
+				...baseLineOption(days, theme, (value) => fmtCost(value)),
+				series: [areaSeries(CNY, days.map((day) => toCny(day.costByCurrency, cnyPerUsd)), COLORS.input)],
 			};
 			return el(EChart, { option, height: 176 });
 		}
@@ -540,7 +533,6 @@ window.__ModuleLoader__.load({
 			const [error, setError] = useState(null);
 			const [loading, setLoading] = useState(true);
 			const [mode, setMode] = useState("cost");
-			const [currency, setCurrency] = useState("USD");
 			const [range, setRange] = useState("7d");
 			const [editorOpen, setEditorOpen] = useState(false);
 			const [editorText, setEditorText] = useState("");
@@ -701,8 +693,8 @@ window.__ModuleLoader__.load({
 			const totalTokens = summary
 				? summary.totals.input + summary.totals.cacheRead + summary.totals.cacheWrite + summary.totals.output
 				: 0;
-			const totalCost = summary ? inCurrency(summary.costByCurrency, currency, fx) : 0;
-			const todayCost = summary ? inCurrency(summary.todayCostByCurrency, currency, fx) : 0;
+			const totalCost = summary ? toCny(summary.costByCurrency, fx) : 0;
+			const todayCost = summary ? toCny(summary.todayCostByCurrency, fx) : 0;
 			const promptTokens = summary ? summary.totals.input + summary.totals.cacheRead : 0;
 			const hitRate = promptTokens > 0 ? (summary.totals.cacheRead / promptTokens) * 100 : 0;
 
@@ -720,16 +712,16 @@ window.__ModuleLoader__.load({
 					bucket[row.currency] = (bucket[row.currency] ?? 0) + row.cost;
 				}
 				const theme = chartTheme();
-				const actual = chartDays.map((day) => inCurrency(actualByDay.get(day.date), currency, fx));
-				const estimated = chartDays.map((day) => inCurrency(day.costByCurrency, currency, fx));
+				const actual = chartDays.map((day) => toCny(actualByDay.get(day.date), fx));
+				const estimated = chartDays.map((day) => toCny(day.costByCurrency, fx));
 				return {
-					...baseLineOption(chartDays, theme, (value) => fmtCost(currency, value)),
+					...baseLineOption(chartDays, theme, (value) => fmtCost(value)),
 					series: [
 						lineSeries(t("billing.estimated"), estimated, COLORS.output),
 						lineSeries(t("billing.actual"), actual, COLORS.cacheRead),
 					],
 				};
-			}, [billing, chartDays, currency, fx, t]);
+			}, [billing, chartDays, fx, t]);
 
 			if (loading && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-empty" }, t("loading")));
 			if (error !== null && data === null) return el("div", { className: "cd-root" }, el("div", { className: "cd-error" }, t("error.load", { msg: error })));
@@ -742,17 +734,13 @@ window.__ModuleLoader__.load({
 						el("div", { className: "cd-toggle" },
 							el("button", { className: mode === "cost" ? "cd-on" : "", onClick: () => setMode("cost") }, t("mode.cost")),
 							el("button", { className: mode === "tokens" ? "cd-on" : "", onClick: () => setMode("tokens") }, t("mode.tokens"))),
-						el("div", { className: "cd-toggle" },
-							el("button", { className: currency === "USD" ? "cd-on" : "", onClick: () => setCurrency("USD") }, "USD"),
-							el("button", { className: currency === "CNY" ? "cd-on" : "", onClick: () => setCurrency("CNY") }, "CNY")),
 						el("button", { className: "cd-refresh", onClick: () => { setLoading(true); load(); } }, t("refresh")))),
 				error !== null ? el("div", { className: "cd-error" }, t("error.load", { msg: error })) : null,
 				data === null || summary === null || summary.sessions === 0 ? el("div", { className: "cd-empty" }, t("empty")) : el(react.Fragment, null,
 					el("div", { className: "cd-cards" },
-						el(Card, { label: t("card.totalCost"), value: fmtCost(currency, totalCost), hint: `${t("card.today")}: ${fmtCost(currency, todayCost)}` }),
+						el(Card, { label: t("card.totalCost"), value: fmtCost(totalCost), hint: `${t("card.today")}: ${fmtCost(todayCost)}` }),
 						el(Card, { label: t("card.input"), value: fmtTokens(summary.totals.input), hint: t("card.inputHint") }),
 						el(Card, { label: t("card.cacheRead"), value: `${hitRate.toFixed(1)}%`, hint: t("card.cacheReadHint", { hit: fmtTokens(summary.totals.cacheRead), miss: fmtTokens(summary.totals.input) }) }),
-						el(Card, { label: t("card.cacheWrite"), value: fmtTokens(summary.totals.cacheWrite) }),
 						el(Card, { label: t("card.output"), value: fmtTokens(summary.totals.output) }),
 						el(Card, { label: t("card.sessions"), value: String(summary.sessions), hint: t("card.sessionsHint", { n: summary.activeSessions }) })),
 					data.unpricedModels.length > 0 ? el("div", { className: "cd-notice" }, t("unpriced", { models: data.unpricedModels.join(", ") })) : null,
@@ -771,9 +759,8 @@ window.__ModuleLoader__.load({
 								el("div", { className: "cd-legend" },
 									el("span", { className: "cd-legendItem" }, el("span", { className: "cd-dot", style: { background: COLORS.input } }), t("legend.input")),
 									el("span", { className: "cd-legendItem" }, el("span", { className: "cd-dot", style: { background: COLORS.cacheRead } }), t("legend.cacheRead")),
-									el("span", { className: "cd-legendItem" }, el("span", { className: "cd-dot", style: { background: COLORS.cacheWrite } }), t("legend.cacheWrite")),
 									el("span", { className: "cd-legendItem" }, el("span", { className: "cd-dot", style: { background: COLORS.output } }), t("legend.output"))))
-							: el(CostChart, { days: chartDays, currency, cnyPerUsd: fx, t })),
+							: el(CostChart, { days: chartDays, cnyPerUsd: fx, t })),
 					el("div", null,
 						el("div", { className: "cd-sectionTitle", style: { margin: "4px 0 8px" } }, t("table.models")),
 						el("div", { className: "cd-tableWrap" },
@@ -797,7 +784,7 @@ window.__ModuleLoader__.load({
 										el("td", { className: "cd-num", title: String(row.input) }, fmtTokens(row.input)),
 										el("td", { className: "cd-num", title: `hit ${fmtTokens(row.cacheRead)} / miss ${fmtTokens(row.input)}` }, rowHitRate === null ? "—" : `${rowHitRate.toFixed(1)}%`),
 										el("td", { className: "cd-num", title: String(row.output) }, fmtTokens(row.output)),
-										el("td", { className: "cd-num" }, row.priced ? fmtCost(currency, inCurrency(row.costByCurrency, currency, fx)) : "—"),
+										el("td", { className: "cd-num" }, row.priced ? fmtCost(toCny(row.costByCurrency, fx)) : "—"),
 										el("td", null, el("div", { className: "cd-share", title: `${(share * 100).toFixed(1)}%` }, el("div", { className: "cd-shareFill", style: { width: `${Math.round(share * 100)}%` } }))));
 								}))))),
 					el("div", null,
@@ -811,13 +798,12 @@ window.__ModuleLoader__.load({
 									el("th", null, t("col.model")),
 									el("th", { className: "cd-num" }, t("col.input")),
 									el("th", { className: "cd-num" }, t("col.cacheRead")),
-									el("th", { className: "cd-num" }, t("col.cacheWrite")),
 									el("th", { className: "cd-num" }, t("col.output")),
 									el("th", { className: "cd-num" }, t("col.cost")),
 									el("th", null, t("col.time")))),
 								el("tbody", null, sessionGroups.flatMap((group) => [
 									el("tr", { key: `g-${group.sessionId}`, className: "cd-sessionHeader" },
-										el("td", { colSpan: 8 },
+										el("td", { colSpan: 7 },
 											el("div", { className: "cd-sessionHeaderInner" },
 												el("div", { style: { minWidth: 0 } },
 													el("div", { className: "cd-sessionTitle", title: group.title }, group.title ?? t("untitled")),
@@ -830,9 +816,8 @@ window.__ModuleLoader__.load({
 										el("td", null, el("span", { className: "cd-modelName" }, el("span", { className: "cd-modelDot" }), row.model ?? "?")),
 										el("td", { className: "cd-num", title: String(row.input) }, fmtTokens(row.input)),
 										el("td", { className: "cd-num", title: String(row.cacheRead) }, fmtTokens(row.cacheRead)),
-										el("td", { className: "cd-num", title: String(row.cacheWrite) }, fmtTokens(row.cacheWrite)),
 										el("td", { className: "cd-num", title: String(row.output) }, fmtTokens(row.output)),
-										el("td", { className: "cd-num" }, fmtCost(currency, inCurrency(row.costByCurrency, currency, fx))),
+										el("td", { className: "cd-num" }, fmtCost(toCny(row.costByCurrency, fx))),
 										el("td", { className: "cd-dim", style: { whiteSpace: "nowrap" } }, fmtWhen(row.lastTime || row.createdAt)))),
 								])))))),
 				el("details", { className: "cd-details", open: editorOpen, onToggle: (event) => {
@@ -858,8 +843,8 @@ window.__ModuleLoader__.load({
 							billing.balances.map((balance) => el(Card, {
 								key: balance.provider,
 								label: t("billing.balance", { label: balance.label }),
-								value: fmtCost(balance.currency, balance.amount),
-								hint: balance.usage !== undefined ? t("billing.usage", { label: balance.label, usage: fmtCost(balance.currency, balance.usage), limit: fmtCost(balance.currency, balance.limit) }) : undefined,
+								value: fmtCost(toCny({ [balance.currency]: balance.amount }, fx)),
+								hint: balance.usage !== undefined ? t("billing.usage", { label: balance.label, usage: fmtCost(toCny({ [balance.currency]: balance.usage }, fx)), limit: fmtCost(toCny({ [balance.currency]: balance.limit }, fx)) }) : undefined,
 							}))) : null,
 						billingComparison !== null ? el("div", { className: "cd-chartCard", style: { marginTop: 8 } },
 							el("div", { className: "cd-chartRow", style: { marginBottom: 6 } },

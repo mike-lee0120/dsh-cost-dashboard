@@ -7,9 +7,9 @@
 ## 你会得到
 
 - **两个入口**：设置 → 费用看板（设置导航图标由 dsh 设置外壳按内置 id 硬编码，无法由插件自定义）；侧边栏底部另有**看板图标按钮**（数据网格样式），点击在面板中打开同一看板
-- **币种切换**：默认按 **USD** 显示，可一键切换 CNY；按可配置汇率（`fx.cnyPerUsd`，默认 6.79）把人民币标价与美元标价换算到同一币种
-- **汇总卡片**：总费用、今日费用、输入（未命中缓存）/ 缓存命中 / 缓存写入 / 输出 tokens、会话数
-- **每日趋势图**：ECharts 平滑折线图（带渐变面积与悬浮 tooltip）；费用模式为单序列（统一币种），Tokens 模式拆为"输入/缓存写入/输出"与"缓存命中"两张图（各自刻度）；时间范围可选 **近一周 / 近一月 / 近三月**（默认近一周）
+- **只用人民币**：所有金额一律按 **CNY（¥）** 显示；美元标价（自动同步的价目表、国外模型）按可配置汇率（`fx.cnyPerUsd`，默认 6.79）折算
+- **汇总卡片**：总费用、今日费用、输入（未命中缓存）/ 缓存命中率 / 输出 tokens、会话数
+- **每日趋势图**：ECharts 平滑折线图（带渐变面积与悬浮 tooltip）；费用模式为单序列（人民币），Tokens 模式拆为"输入/输出"与"缓存命中"两张图（各自刻度）；时间范围可选 **近一周 / 近一月 / 近三月**（默认近一周）
 - **按模型汇总表**：各模型的 token 用量、费用、占比
 - **按会话汇总表**：按费用排序，**每个会话按模型拆行**（一个会话用了多个模型就多行，各自显示模型、tokens 与费用），含标题、项目目录、子代理标记
 - **价格配置**：页面上直接编辑价格表 JSON（含汇率），保存到 `~/.dsh/cost-dashboard.json`，立即生效
@@ -45,32 +45,36 @@ dsh plugin --profile web add github:mike-lee0120/dsh-cost-dashboard
 
 ## 数据来源与记账规则
 
-- 只读扫描 `$DSH_HOME/sessions/*/*/session.jsonl.zstd`（或明文 `.jsonl`），不写入、不改投影。
+- 只读扫描 `$DSH_HOME/sessions/*/*/` 下的当前日志代（`session.jsonl.zstd`、`session.vN.jsonl.zstd` 或明文 `.jsonl`）：按版本号取最高的一代，与运行时读取的文件完全一致，因此迁移过的会话不会被旧一代的冻结日志计费。不写入、不改投影。
 - 记账语义与官方 `@deepseek-ai/dsh-token-meter` 的 `tokenUsage` 投影一致：
   - `assistant/chunk {type:'usage'}` 是请求的早期样本（请求后续失败也计数）；
-  - `assistant/message` 的 `usage` 是同 `(turn, step)` 的最终样本，**替换**前者而非重复计数；
-  - 四个不相交桶：输入（未命中缓存，DeepSeek `prompt_tokens` 已扣除缓存命中）、缓存命中、缓存写入、输出。
+  - `assistant/message` 的 `usage`（或缺省时其 `data.stream` 中最后一个 `usage` chunk）是同 `(turn, step)` 的最终样本，**替换**前者而非重复计数；`llm/retry-started` 会关闭该替换槽，使重试的尝试累加而非覆盖；
+  - `assistant/attempt` 的结算同样计费，即使之后没有生成消息；
+  - 四个不相交桶：输入（未命中缓存，DeepSeek `prompt_tokens` 已扣除缓存命中）、缓存命中、缓存写入、输出。缓存写入仍会被折算并参与 `cacheWrite` 价，但 DeepSeek 全线不产生该桶（实测恒为 0），因此看板与各表格不再展示。
 - 模型归属：`assistant/message` 自带 `message.source.provider/model`；仅有 usage chunk（失败请求）时归属最近一条 `request/header` 的模型。
 - 会话中途切换模型也能正确拆分到各模型。
-- 可运行 `node scripts/verify-totals.mjs` 与官方 `session_projcache.json` 逐会话对账（开发环境实测逐会话一致；正在写入的活跃会话可能因实时时间差出现微小偏差，属正常）。
+- 可运行 `node scripts/verify-totals.mjs`：与官方 `session_projcache.json` 逐会话对账（该缓存是某一时刻的快照，晚于它的日志会自动跳过并说明）；用官方 token meter 的语义重新折叠当前选中的每个日志并逐会话比对；校验迁移过的会话取到最高格式代；并固定校验 DeepSeek 官方人民币价与「北京时间 + 仅工作日」的峰时窗口（正在写入的活跃会话可能因实时时间差出现微小偏差，属正常）。
 
 ## 价格表
 
-内置 21 个主流模型（单位：每百万 tokens，核对于 2026-08-18；「命中」= 缓存命中价，「写入」= 缓存写入价，缺省按未命中输入价计）：
+内置 24 个条目 = 21 个模型 + 3 个 DeepSeek 退役模型名（单位：每百万 tokens，核对于 2026-09-24；「命中」= 缓存命中价，「写入」= 缓存写入价，缺省按未命中输入价计）。DeepSeek 采用官方人民币价目表（[模型 & 价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)），其余条目折算成人民币显示：
 
 **人民币标价（CNY）**
 
 | 模型 | 输入(未命中) | 输入(命中) | 输出 | 备注 |
 |---|---|---|---|---|
-| deepseek-v4-pro | 4.5 | 0.15 | 13.5 | 峰时翻倍：9 / 0.30 / 27（9-12、14-18 点） |
-| deepseek-v4-flash | 1.5 | 0.05 | 4.5 | 峰时翻倍：3 / 0.10 / 9.0 |
+| deepseek-v4-pro | 4.5 | 0.15 | 13.5 | 峰时翻倍：9 / 0.30 / 27 |
+| deepseek-flash | 1 | 0.02 | 4 | 峰时翻倍：2 / 0.04 / 8 |
+| deepseek-v4-flash | 1 | 0.02 | 4 | 退役名，实际由 DeepSeek-V4.1-Flash 服务 |
+| deepseek-v4-flash-vision-exp | 1 | 0.02 | 4 | 退役名，同 Flash 价 |
+| deepseek-v4.1-flash-expires-on-0910 | 1 | 0.02 | 4 | 已过期实验模型名，同 Flash 价 |
 | kimi-k3 | 20 | 2 | 100 | 月之暗面国内标价 |
 | qwen3.8-max | 12 | 1.5 | 36 | 阿里云百炼国内标价 |
 | doubao-seed-2.1-pro | 6 | — | 30 | 火山方舟 |
 | hy3 | 1 | 0.25 | 4 | 腾讯混元 |
 | minimax-m3 | 3.15 | 0.63 | 12.6 | ≤512K 输入五折刊例价 |
 
-**美元标价（USD）**
+**美元标价（USD，看板折算成人民币显示）**
 
 | 模型 | 输入(未命中) | 输入(命中) | 缓存写入 | 输出 | 备注 |
 |---|---|---|---|---|---|
@@ -107,11 +111,11 @@ dsh plugin --profile web add github:mike-lee0120/dsh-cost-dashboard
 }
 ```
 
-字段：`fx.cnyPerUsd`（美元兑人民币，默认 6.79，用于跨币种换算显示）；每个模型 `currency`（CNY|USD）、`input`（未命中输入价）、`inputHit`（缓存命中价，缺省=input）、`cacheWrite`（缓存写价，缺省=input）、`output`；可选 `peak` 与 `peakHours`（宿主本地时间，命中峰时用 peak 费率，peak 未写的字段回落平价）。看板默认以 USD 显示，CNY 标价按汇率折算；切换 CNY 时 USD 标价按汇率折算。
+字段：`fx.cnyPerUsd`（美元兑人民币，默认 6.79，用于把美元标价折算成人民币显示）；每个模型 `currency`（CNY|USD）、`input`（未命中输入价）、`inputHit`（缓存命中价，缺省=input）、`cacheWrite`（缓存写价，缺省=input）、`output`；可选 `peak` 及其窗口 `peakHours`（北京时间小时段）、`peakWeekdays`（0=周日，默认周一至周五）、`peakExcludeDates`（北京时间 `YYYY-MM-DD`，如法定节假日）。命中峰时用 peak 费率，peak 未写的字段回落平价；周末与被排除的日期全天按空闲价计。
 
 ### 价目表自动同步
 
-- 内置价之外，看板会从 [LiteLLM 价目 JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) 自动补齐缺失模型（美元价，配合 `fx` 换算显示）。
+- 内置价之外，看板会从 [LiteLLM 价目 JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) 自动补齐缺失模型（美元价，配合 `fx` 折算成人民币显示）。
 - 优先级：**手工覆盖 > 内置价 > 目录价**——目录只填缺口，永不覆盖内置峰谷价或您的手工配置。
 - 每 24 小时刷新一次，结果缓存到 `~/.dsh/storages/cost-dashboard-catalog.json`；断网时自动降级为缓存，失败状态在看板页脚可见，可点「刷新价目」手动重试。
 

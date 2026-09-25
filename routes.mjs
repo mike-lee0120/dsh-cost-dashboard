@@ -136,7 +136,7 @@ export function mountRoutes(host) {
 					const started = Date.now();
 					const [catalog, { records, errors, files }] = await Promise.all([loadCatalog(home), ensureScan()]);
 					const pricing = effectivePricing(home, catalog);
-					const stats = aggregate(records, pricing.models);
+					const stats = aggregate(records, pricing.models, pricing.fx);
 					sendJson(response, 200, {
 						...stats,
 						fx: pricing.fx,

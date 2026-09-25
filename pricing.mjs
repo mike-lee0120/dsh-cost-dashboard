@@ -1,10 +1,16 @@
 /**
  * Pricing table and per-sample cost calculation for dsh-cost-dashboard.
  *
- * All rates are per 1,000,000 tokens. An entry may carry a flat rate only,
- * or additionally a `peak` tier plus `peakHours` (host-local clock hours,
- * inclusive start, exclusive end) for time-of-day pricing such as
- * DeepSeek's peak/off-peak scheme effective 2026-08-17.
+ * All rates are per 1,000,000 tokens. Costs are reported in CNY: an entry may
+ * be quoted in CNY or USD (`currency`), and a USD entry is converted to CNY
+ * with `fx.cnyPerUsd` before display, so no surface ever shows dollars.
+ *
+ * An entry may carry a flat rate only, or additionally a `peak` tier plus the
+ * window that selects it: `peakHours` (Beijing-time clock hours, inclusive
+ * start, exclusive end), `peakWeekdays` (Beijing-time weekdays, 0 = Sunday)
+ * and `peakExcludeDates` (Beijing-time `YYYY-MM-DD`, e.g. statutory holidays).
+ * DeepSeek's published scheme - peak only on weekdays 09:00-12:00 and
+ * 14:00-18:00, with weekends and holidays off-peak all day - is the default.
  *
  * Missing `inputHit` defaults to the (cache-miss) input rate; missing
  * `cacheWrite` defaults to the active tier's input rate. A peak tier only
@@ -14,18 +20,28 @@
 import { readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { join as joinPath } from 'node:path';
 
-/** DeepSeek peak hours (Beijing time), 2026-08-17 pricing announcement. */
+/** DeepSeek peak hours (Beijing time), 09:00-12:00 and 14:00-18:00. */
 export const DEFAULT_PEAK_HOURS = [[9, 12], [14, 18]];
+/** DeepSeek peak weekdays (Beijing time, 0 = Sunday): Monday through Friday only. */
+export const DEFAULT_PEAK_WEEKDAYS = [1, 2, 3, 4, 5];
+/** Beijing is UTC+8 with no daylight saving, so one fixed offset is exact. */
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /**
  * Built-in model pricing, per 1M tokens.
- * Sources (checked 2026-08-18):
- * - DeepSeek V4 official peak/off-peak pricing, effective 2026-08-17
- *   (off-peak is half of peak; peak hours 09:00-12:00 and 14:00-18:00).
- * - GLM-5.3 Z.ai list price;火山方舟渠道价格可能不同，请自行覆盖。
- * - OpenAI GPT-5.6/5.5/5.4/5.1: benchlm.ai OpenAI API pricing (Aug 2026),
+ * Sources (checked 2026-09-24):
+ * - DeepSeek 模型 & 价格 https://api-docs.deepseek.com/zh-cn/quick_start/pricing
+ *   (CNY; peak = weekdays 09:00-12:00 and 14:00-18:00 Beijing time, off-peak is
+ *   half of peak, and weekends plus statutory holidays are off-peak all day):
+ *     deepseek-flash (DeepSeek-V4.1-Flash):     1   / 0.02 / 4     peak 2 / 0.04 / 8
+ *     deepseek-v4-pro (DeepSeek-V4-Pro-0813):   4.5 / 0.15 / 13.5  peak 9 / 0.3  / 27
+ *   The retired names `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp`
+ *   stay callable and are served by DeepSeek-V4.1-Flash, so they bill at Flash
+ *   prices; the same holds for the expired experimental id seen in session logs.
+ * - GLM-5.3 Z.ai list price (USD);火山方舟渠道价格可能不同，请自行覆盖。
+ * - OpenAI GPT-5.6/5.5/5.4/5.1: benchlm.ai OpenAI API pricing (Aug 2026, USD),
  *   cached-input rates at 10% of input.
- * - Anthropic Claude 5 series: benchlm.ai Anthropic API pricing (Aug 2026);
+ * - Anthropic Claude 5 series: benchlm.ai Anthropic API pricing (Aug 2026, USD);
  *   cache read 10% of input, cache write 1.25x input. Sonnet 5 runs a
  *   temporary $2/$10 rate through 2026-08-31, then $3/$15.
  * - Google Gemini 3.6 Flash / 3.5 Flash-Lite: 量子位 via BAAI Hub (2026-07-24).
@@ -37,24 +53,34 @@ export const DEFAULT_PEAK_HOURS = [[9, 12], [14, 18]];
  * - Doubao Seed 2.1 Pro: 新浪科技 (¥6/¥30).
  * - MiniMax-M3: MiniMax 开放平台按量计费页 (≤512K 输入五折刊例价).
  */
+const DEEPSEEK_FLASH = {
+	currency: 'CNY',
+	input: 1,
+	inputHit: 0.02,
+	output: 4,
+	peak: { input: 2, inputHit: 0.04, output: 8 },
+	peakHours: DEFAULT_PEAK_HOURS,
+	peakWeekdays: DEFAULT_PEAK_WEEKDAYS,
+};
+const DEEPSEEK_PRO = {
+	currency: 'CNY',
+	input: 4.5,
+	inputHit: 0.15,
+	output: 13.5,
+	peak: { input: 9, inputHit: 0.3, output: 27 },
+	peakHours: DEFAULT_PEAK_HOURS,
+	peakWeekdays: DEFAULT_PEAK_WEEKDAYS,
+};
+
 export const BUILTIN_PRICING = {
 	models: {
-		'deepseek-v4-pro': {
-			currency: 'CNY',
-			input: 4.5,
-			inputHit: 0.15,
-			output: 13.5,
-			peak: { input: 9, inputHit: 0.3, output: 27 },
-			peakHours: DEFAULT_PEAK_HOURS,
-		},
-		'deepseek-v4-flash': {
-			currency: 'CNY',
-			input: 1.5,
-			inputHit: 0.05,
-			output: 4.5,
-			peak: { input: 3, inputHit: 0.1, output: 9 },
-			peakHours: DEFAULT_PEAK_HOURS,
-		},
+		// Current DeepSeek names.
+		'deepseek-flash': DEEPSEEK_FLASH,
+		'deepseek-v4-pro': DEEPSEEK_PRO,
+		// Retired DeepSeek names, still served by V4.1-Flash and billed as Flash.
+		'deepseek-v4-flash': DEEPSEEK_FLASH,
+		'deepseek-v4-flash-vision-exp': DEEPSEEK_FLASH,
+		'deepseek-v4.1-flash-expires-on-0910': DEEPSEEK_FLASH,
 		'glm-5.3': {
 			currency: 'USD',
 			input: 1.4,
@@ -213,6 +239,24 @@ export function normalizeEntry(value) {
 		}
 		out.peakHours = hours;
 	}
+	if (value.peakWeekdays !== undefined) {
+		if (!Array.isArray(value.peakWeekdays) || value.peakWeekdays.length === 0) return null;
+		const weekdays = [];
+		for (const day of value.peakWeekdays) {
+			if (!Number.isInteger(day) || day < 0 || day > 6) return null;
+			weekdays.push(day);
+		}
+		out.peakWeekdays = weekdays;
+	}
+	if (value.peakExcludeDates !== undefined) {
+		if (!Array.isArray(value.peakExcludeDates)) return null;
+		const dates = [];
+		for (const date of value.peakExcludeDates) {
+			if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+			dates.push(date);
+		}
+		out.peakExcludeDates = dates;
+	}
 	return out;
 }
 
@@ -304,6 +348,32 @@ export function effectivePricing(home, catalog = undefined) {
 }
 
 /**
+ * The Beijing-time clock of one epoch-ms instant. Vendor peak windows are
+ * published in Beijing time, while the host may run in any timezone, so peak
+ * selection never uses the host's local clock.
+ */
+function beijingClock(time) {
+	const shifted = new Date(time + BEIJING_OFFSET_MS);
+	const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+	const day = String(shifted.getUTCDate()).padStart(2, '0');
+	return {
+		hour: shifted.getUTCHours(),
+		weekday: shifted.getUTCDay(),
+		date: `${shifted.getUTCFullYear()}-${month}-${day}`,
+	};
+}
+
+/** Whether one sample falls inside the entry's peak window (Beijing time). */
+function isPeakSample(entry, time) {
+	const hours = entry.peakHours ?? DEFAULT_PEAK_HOURS;
+	const weekdays = entry.peakWeekdays ?? DEFAULT_PEAK_WEEKDAYS;
+	const clock = beijingClock(time);
+	if (!weekdays.includes(clock.weekday)) return false;
+	if (entry.peakExcludeDates !== undefined && entry.peakExcludeDates.includes(clock.date)) return false;
+	return hours.some(([start, end]) => clock.hour >= start && clock.hour < end);
+}
+
+/**
  * Cost of one usage sample under one pricing entry.
  * sample: { t: epoch-ms, in, cr, cw, out } - token counts per bucket.
  * Returns { currency, amount } or null when the entry is unpriced.
@@ -316,18 +386,13 @@ export function sampleCost(entry, sample) {
 		cacheWrite: entry.cacheWrite ?? entry.input,
 		output: entry.output,
 	};
-	if (entry.peak !== undefined) {
-		const hours = entry.peakHours ?? DEFAULT_PEAK_HOURS;
-		const hour = new Date(sample.t).getHours();
-		const isPeak = hours.some(([start, end]) => hour >= start && hour < end);
-		if (isPeak) {
-			rates = {
-				input: entry.peak.input ?? rates.input,
-				inputHit: entry.peak.inputHit ?? entry.inputHit ?? entry.input,
-				cacheWrite: entry.peak.cacheWrite ?? entry.cacheWrite ?? entry.input,
-				output: entry.peak.output ?? rates.output,
-			};
-		}
+	if (entry.peak !== undefined && isPeakSample(entry, sample.t)) {
+		rates = {
+			input: entry.peak.input ?? rates.input,
+			inputHit: entry.peak.inputHit ?? entry.inputHit ?? entry.input,
+			cacheWrite: entry.peak.cacheWrite ?? entry.cacheWrite ?? entry.input,
+			output: entry.peak.output ?? rates.output,
+		};
 	}
 	const amount = (sample.in * rates.input
 		+ sample.cr * rates.inputHit

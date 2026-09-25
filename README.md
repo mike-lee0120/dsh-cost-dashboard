@@ -7,9 +7,9 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 ## What you get
 
 - **Two entry points**: Settings -> Cost Dashboard (the settings nav icons are hardcoded by the dsh settings shell, so plugins cannot customize them), plus a **sidebar footer icon button** (data-grid style) that opens the same dashboard in an anchored panel
-- **Currency switch**: displays in **USD by default** with a one-click CNY toggle; converts between CNY- and USD-listed prices at the configurable `fx.cnyPerUsd` rate (default 6.79)
-- **Summary cards**: total cost, today's cost, input (cache-miss) / cache-read / cache-write / output tokens, session count
-- **Daily trend chart**: ECharts smooth line charts (gradient area fill and hover tooltips); cost mode is a single unified-currency series, tokens mode splits into "input / cache write / output" and "cache read" charts on independent scales; selectable **1W / 1M / 3M** ranges (default 1W)
+- **CNY only**: every amount is shown in **CNY (¥)**; entries listed in USD (imported catalogs, foreign models) convert at the configurable `fx.cnyPerUsd` rate (default 6.79)
+- **Summary cards**: total cost, today's cost, input (cache-miss) / cache-read rate / output tokens, session count
+- **Daily trend chart**: ECharts smooth line charts (gradient area fill and hover tooltips); cost mode is a single CNY series, tokens mode splits into "input / output" and "cache read" charts on independent scales; selectable **1W / 1M / 3M** ranges (default 1W)
 - **By-model table**: tokens, cost, share per model
 - **By-session table**: sorted by cost, **one row per session-model pair** (a session that used several models appears on several rows, each with its own model, tokens and cost), with title, project directory, subagent badge
 - **Pricing editor**: edit the pricing JSON (including the FX rate) in-page; saves to `~/.dsh/cost-dashboard.json`, effective immediately
@@ -43,32 +43,36 @@ Requires dsh `0.1.0-rc.7`+ and Node >= 22.15 (the `node:zlib` zstd API the host 
 
 ## Data source and accounting
 
-- Read-only scan of `$DSH_HOME/sessions/*/*/session.jsonl.zstd` (or plaintext `.jsonl`); nothing is written, no projection touched.
+- Read-only scan of the current log generation inside `$DSH_HOME/sessions/*/*/` (`session.jsonl.zstd`, `session.vN.jsonl.zstd`, or plaintext `.jsonl`); the numerically highest published generation wins, exactly as the runtime reads it, so a migrated session is never billed from its frozen older generation. Nothing is written, no projection touched.
 - Accounting mirrors the official `@deepseek-ai/dsh-token-meter` `tokenUsage` projection:
   - `assistant/chunk {type:'usage'}` is an early sample that survives a later request failure;
-  - `assistant/message` usage is the final sample for the same `(turn, step)` and **replaces** it instead of double counting;
-  - four disjoint buckets: uncached input (DeepSeek `prompt_tokens` with cache hits subtracted), cache read, cache write, output.
+  - `assistant/message` usage (or the last `usage` chunk of its `data.stream`) is the final sample for the same `(turn, step)` and **replaces** it instead of double counting, and `llm/retry-started` closes that slot so a retried attempt adds on top;
+  - `assistant/attempt` settlements are billed even when no message followed;
+  - four disjoint buckets: uncached input (DeepSeek `prompt_tokens` with cache hits subtracted), cache read, cache write, output. Cache write is still folded and still prices `cacheWrite` rates, but no DeepSeek model produces that bucket, so the dashboard and its tables do not display it.
 - Model attribution: `assistant/message` carries `message.source.provider/model`; a bare usage chunk (failed request) is attributed to the latest `request/header` model.
 - Mid-session model switches are split correctly.
-- Run `node scripts/verify-totals.mjs` to reconcile against the official `session_projcache.json` (verified session-by-session in development; an actively-writing session may drift by a live-write race, which is expected).
+- Run `node scripts/verify-totals.mjs`: it reconciles against the official `session_projcache.json` (a point-in-time snapshot, so newer logs are skipped and said so), folds every selected log with the token meter's semantics, checks that a migrated session resolves to its highest format generation, and pins DeepSeek's official CNY rates plus the Beijing-time weekday peak window (an actively-writing session may drift by a live-write race, which is expected).
 
 ## Pricing
 
-Built-in pricing for 21 mainstream models (per 1M tokens, checked 2026-08-18; "hit" = cache-read rate, "write" = cache-write rate, defaults to the cache-miss input rate when unset):
+Built-in pricing for 24 entries - 21 models plus three retired DeepSeek names - per 1M tokens, checked 2026-09-24; "hit" = cache-read rate, "write" = cache-write rate, defaults to the cache-miss input rate when unset. DeepSeek rates are the official CNY list prices ([模型 & 价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)); every other entry is shown in CNY after conversion:
 
 **CNY-listed models**
 
 | Model | Input (miss) | Input (hit) | Output | Notes |
 |---|---|---|---|---|
-| deepseek-v4-pro | 4.5 | 0.15 | 13.5 | peak doubles: 9 / 0.30 / 27 (09-12, 14-18) |
-| deepseek-v4-flash | 1.5 | 0.05 | 4.5 | peak doubles: 3 / 0.10 / 9.0 |
+| deepseek-v4-pro | 4.5 | 0.15 | 13.5 | peak doubles: 9 / 0.30 / 27 |
+| deepseek-flash | 1 | 0.02 | 4 | peak doubles: 2 / 0.04 / 8 |
+| deepseek-v4-flash | 1 | 0.02 | 4 | retired name, served by DeepSeek-V4.1-Flash |
+| deepseek-v4-flash-vision-exp | 1 | 0.02 | 4 | retired name, same Flash rates |
+| deepseek-v4.1-flash-expires-on-0910 | 1 | 0.02 | 4 | expired experimental id, same Flash rates |
 | kimi-k3 | 20 | 2 | 100 | Moonshot China list price |
 | qwen3.8-max | 12 | 1.5 | 36 | Alibaba Bailian China price |
 | doubao-seed-2.1-pro | 6 | - | 30 | Volcengine Ark |
 | hy3 | 1 | 0.25 | 4 | Tencent Hunyuan |
 | minimax-m3 | 3.15 | 0.63 | 12.6 | ≤512K input, half-price list rate |
 
-**USD-listed models**
+**USD-listed models** (converted to CNY for display)
 
 | Model | Input (miss) | Input (hit) | Cache write | Output | Notes |
 |---|---|---|---|---|---|
@@ -105,11 +109,11 @@ The in-dashboard **Pricing config** editor saves `~/.dsh/cost-dashboard.json` (p
 }
 ```
 
-Fields: `fx.cnyPerUsd` (USD->CNY, default 6.79, used for cross-currency display); per model `currency` (CNY|USD), `input` (cache-miss), `inputHit` (defaults to input), `cacheWrite` (defaults to input), `output`; optional `peak` and `peakHours` (host-local hours; peak hours use peak rates, unset peak fields fall back to flat). The dashboard displays USD by default and converts CNY-listed prices at the FX rate; switching to CNY converts USD-listed prices the other way.
+Fields: `fx.cnyPerUsd` (USD->CNY, default 6.79, used to display USD-listed entries in CNY); per model `currency` (CNY|USD), `input` (cache-miss), `inputHit` (defaults to input), `cacheWrite` (defaults to input), `output`; optional `peak` with its window `peakHours` (Beijing-time hours), `peakWeekdays` (0 = Sunday, weekdays by default) and `peakExcludeDates` (Beijing-time `YYYY-MM-DD`, e.g. statutory holidays). Peak hours use peak rates and unset peak fields fall back to flat; weekends and excluded dates are off-peak all day.
 
 ### Auto-synced catalog
 
-- Beyond the builtin table, the dashboard fills missing models from the [LiteLLM price JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) (USD rates, converted for display via `fx`).
+- Beyond the builtin table, the dashboard fills missing models from the [LiteLLM price JSON](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) (USD rates, converted to CNY for display via `fx`).
 - Priority: **user override > builtin > catalog** — the catalog only fills gaps and never overrides builtin peak pricing or your hand-written config.
 - Refreshed every 24h and cached at `~/.dsh/storages/cost-dashboard-catalog.json`; on network failure it degrades to the cache, the status is visible in the dashboard footer, and a "Refresh prices" button retries manually.
 

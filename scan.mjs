@@ -1,17 +1,21 @@
 /**
  * Session-log scanning and usage accounting for dsh-cost-dashboard.
  *
- * Reads every persisted session artifact under $DSH_HOME/sessions (zstd
- * concatenated-frame `.jsonl.zstd` or plaintext `.jsonl`) and folds provider
- * usage into per-model token samples, mirroring the accounting semantics of
- * @deepseek-ai/dsh-token-meter's `tokenUsage` projection:
+ * Reads the current generation of every persisted session artifact under
+ * $DSH_HOME/sessions (zstd concatenated-frame `.jsonl.zstd` or plaintext
+ * `.jsonl`) and folds provider usage into per-model token samples, mirroring
+ * the accounting semantics of @deepseek-ai/dsh-token-meter's `tokenUsage`
+ * projection:
  *
- * - `assistant/chunk { type: 'usage' }` provides an early sample that
- *   survives a later request failure;
- * - `assistant/message` with `data.usage` provides the final sample for the
- *   same (turn, step);
+ * - `assistant/chunk { type: 'usage' }` (v2 logs) provides an early sample
+ *   that survives a later request failure;
+ * - `assistant/message` with `data.usage`, or the final `usage` chunk of its
+ *   `data.stream`, provides the settlement sample for the same (turn, step);
+ * - `assistant/attempt` contributes the same way, so an attempt whose
+ *   settlement never became a message is still billed;
  * - a repeated sample for the same (turn, step) REPLACES the earlier one
- *   instead of double-counting it.
+ *   instead of double-counting it, and `llm/retry-started` closes that
+ *   replacement slot so the retried attempt adds to the total.
  *
  * Model attribution: an assistant message names its own provider/model in
  * `message.source`; a bare usage chunk (failed request, no message) is
@@ -130,6 +134,32 @@ function sameBuckets(left, right) {
 }
 
 /**
+ * The final raw `usage` chunk of one durable Assistant settlement stream, or
+ * undefined when it carries none. Mirrors lastAssistantStreamChunk from
+ * @deepseek-ai/dsh-llm, whose contract the token meter folds on.
+ */
+function lastStreamUsage(stream) {
+	if (!Array.isArray(stream)) return undefined;
+	for (let index = stream.length - 1; index >= 0; index -= 1) {
+		const record = stream[index];
+		if (record?.type === 'chunk' && record.chunk?.type === 'usage') return record.chunk.usage;
+	}
+	return undefined;
+}
+
+/**
+ * The provider usage one durable Assistant settlement reports, following the
+ * token meter exactly: `assistant/message` prefers its explicit `data.usage`
+ * and otherwise falls back to its stream, while `assistant/attempt` only ever
+ * reports through its stream.
+ */
+function settlementUsage(event) {
+	if (event.type === 'assistant/message' && event.data?.usage !== undefined) return event.data.usage;
+	if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') return undefined;
+	return lastStreamUsage(event.data?.stream);
+}
+
+/**
  * Fold one session's JSONL text into header facts and per-model usage samples.
  * Only newline-terminated lines are considered, so a concurrently written
  * partial tail line is ignored.
@@ -207,19 +237,26 @@ export function parseSession(text) {
 				consider(event.data.turn, event.data.step, chunk.usage, event.time ?? 0, currentProvider, currentModel);
 				break;
 			}
+			case 'assistant/attempt':
 			case 'assistant/message': {
-				if (event.data?.usage === undefined) break;
-				const source = event.data.message?.source;
+				const usage = settlementUsage(event);
+				if (usage === undefined) break;
+				const source = event.data?.message?.source;
 				consider(
 					event.data.turn,
 					event.data.step,
-					event.data.usage,
+					usage,
 					event.time ?? 0,
 					typeof source?.provider === 'string' ? source.provider : currentProvider,
 					typeof source?.model === 'string' ? source.model : currentModel,
 				);
 				break;
 			}
+			case 'llm/retry-started':
+				// The meter closes the replacement slot, so the retried attempt adds
+				// to the total instead of replacing the settled one.
+				if (last !== null && last.turn === event.data?.turn && last.step === event.data?.step) commit();
+				break;
 			default:
 				break;
 		}
@@ -228,11 +265,67 @@ export function parseSession(text) {
 	return record;
 }
 
-/**
- * Enumerate session artifact files under the sessions root.
- * @returns {{path:string, mtimeMs:number, size:number}[]}
+/*
+ * One session directory holds one immutable file per published format
+ * generation: `session.jsonl.zstd` is released v0, later generations are
+ * `session.vN.jsonl.zstd`, and each also exists uncompressed as `.jsonl`. The
+ * persistence backend serves the numerically highest generation, and a write
+ * open publishes a migrated successor beside its byte-identical source, so a
+ * migrated directory lists several generations at once - the older ones are
+ * frozen at the migration point. The scan must therefore select exactly the
+ * generation the runtime reads, not merely the first name it recognises.
  */
-function listSessionFiles(home) {
+const ARTIFACT_PATTERN = /^session(?:\.v(\d+))?\.jsonl(\.zstd)?$/;
+
+/** Parse an artifact filename into its generation, or null when it is not one. */
+function artifactOf(name) {
+	const match = ARTIFACT_PATTERN.exec(name);
+	if (match === null) return null;
+	return { version: match[1] === undefined ? 0 : Number(match[1]), compressed: match[2] !== undefined };
+}
+
+/** True when `candidate` should be read instead of `current`. */
+function artifactBeats(candidate, current) {
+	if (candidate.version !== current.version) return candidate.version > current.version;
+	if (candidate.mtimeMs !== current.mtimeMs) return candidate.mtimeMs > current.mtimeMs;
+	return candidate.compressed && !current.compressed;
+}
+
+/**
+ * Select the highest canonical generation present in one session directory.
+ * @returns {{path:string, mtimeMs:number, size:number, version:number, compressed:boolean}|null}
+ */
+function selectArtifact(dir) {
+	let entries;
+	try {
+		entries = readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return null;
+	}
+	let best = null;
+	for (const entry of entries) {
+		if (!entry.isFile()) continue;
+		const artifact = artifactOf(entry.name);
+		if (artifact === null) continue;
+		const path = join(dir, entry.name);
+		let stats;
+		try {
+			stats = statSync(path);
+		} catch {
+			continue; /* raced away - ignore */
+		}
+		if (!stats.isFile()) continue;
+		const candidate = { path, mtimeMs: stats.mtimeMs, size: stats.size, ...artifact };
+		if (best === null || artifactBeats(candidate, best)) best = candidate;
+	}
+	return best;
+}
+
+/**
+ * Enumerate the selected session artifact of every session directory.
+ * @returns {{path:string, mtimeMs:number, size:number, version:number, compressed:boolean}[]}
+ */
+export function listSessionFiles(home) {
 	const root = join(home, 'sessions');
 	const files = [];
 	let projects;
@@ -251,15 +344,8 @@ function listSessionFiles(home) {
 		}
 		for (const session of sessions) {
 			if (!session.isDirectory()) continue;
-			for (const name of ['session.jsonl.zstd', 'session.jsonl']) {
-				const path = join(root, project.name, session.name, name);
-				try {
-					const stats = statSync(path);
-					if (stats.isFile()) files.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
-				} catch {
-					/* raced away - ignore */
-				}
-			}
+			const artifact = selectArtifact(join(root, project.name, session.name));
+			if (artifact !== null) files.push(artifact);
 		}
 	}
 	return files;
@@ -269,7 +355,8 @@ function listSessionFiles(home) {
  * Refresh the scan cache against the filesystem and return the parsed records.
  * Only new or changed (mtime/size) files are re-read; deleted files drop out.
  * @param {Map<string,{mtimeMs:number,size:number,record:object}>} cache - caller-held cache.
- * @returns {Promise<{records:object[], errors:string[], files:number}>}
+ * @returns {Promise<{records:object[], errors:string[], files:number}>} `files` counts the
+ *   selected artifacts - exactly one log per session directory, never a stale generation.
  */
 export async function scanAll(home, cache) {
 	const files = listSessionFiles(home);
@@ -297,9 +384,11 @@ export async function scanAll(home, cache) {
  * Aggregate parsed session records against a pricing table.
  * @param {object[]} records - parsed session records from scanAll.
  * @param {Record<string, object>} pricing - effective pricing models map.
+ * @param {{ cnyPerUsd: number }} [fx] - conversion rate; when given, rows are
+ *   ordered by their CNY-equivalent cost, which is the currency reported.
  * @returns the dashboard stats document.
  */
-export function aggregate(records, pricing) {
+export function aggregate(records, pricing, fx = undefined) {
 	const zeroBuckets = () => ({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
 	const addBuckets = (into, sample) => {
 		into.input += sample.in;
@@ -374,9 +463,12 @@ export function aggregate(records, pricing) {
 		if (record.delegationDepth > 0) subagents += 1;
 		if (hasSamples) activeSessions += 1;
 	}
-	// Dominant currency for ordering (the currency with the greatest total).
+	// Ordering value of one cost map: the CNY-equivalent total when a rate is
+	// known (the dashboard reports CNY), else the dominant currency's own total.
 	const dominant = Object.entries(totalCost).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
-	const costOf_ = (costByCurrency) => dominant === null ? 0 : costByCurrency[dominant] ?? 0;
+	const costOf_ = fx === undefined
+		? (costByCurrency) => dominant === null ? 0 : costByCurrency[dominant] ?? 0
+		: (costByCurrency) => (costByCurrency?.CNY ?? 0) + (costByCurrency?.USD ?? 0) * fx.cnyPerUsd;
 	sessions.sort((left, right) => costOf_(right.costByCurrency) - costOf_(left.costByCurrency)
 		|| (right.input + right.cacheRead + right.cacheWrite + right.output)
 			- (left.input + left.cacheRead + left.cacheWrite + left.output));
