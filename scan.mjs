@@ -172,6 +172,8 @@ export function parseSession(text) {
 		cwd: null,
 		delegationDepth: 0,
 		agentPreset: null,
+		parentSession: null,
+		origin: null,
 		title: null,
 		lastTime: 0,
 		turns: 0,
@@ -218,6 +220,10 @@ export function parseSession(text) {
 				record.cwd = event.cwd ?? record.cwd;
 				record.delegationDepth = event.delegationDepth ?? record.delegationDepth;
 				record.agentPreset = event.agentPreset ?? record.agentPreset;
+				// A subagent's log names the session that spawned it, which is how
+				// its usage is later folded back into that session.
+				record.parentSession = event.parentSession ?? record.parentSession;
+				record.origin = event.origin ?? record.origin;
 				break;
 			case 'session/title':
 				record.title = event.data?.title ?? record.title;
@@ -386,8 +392,13 @@ export async function scanAll(home, cache) {
  * @param {Record<string, object>} pricing - effective pricing models map.
  * @param {{ cnyPerUsd: number }} [fx] - conversion rate; when given, rows are
  *   ordered by their CNY-equivalent cost, which is the currency reported.
- * @returns the dashboard stats document.
+ * @returns the dashboard stats document. `bySession` holds one row per
+ *   (root session, model) pair: a subagent log is folded into the session that
+ *   spawned it, so the table lists real sessions rather than every delegate.
+ *   Only whole sessions are capped, and `sessionTotal` counts them all.
  */
+export const MAX_SESSION_GROUPS = 1000;
+
 export function aggregate(records, pricing, fx = undefined) {
 	const zeroBuckets = () => ({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
 	const addBuckets = (into, sample) => {
@@ -404,15 +415,64 @@ export function aggregate(records, pricing, fx = undefined) {
 	const totalCost = {};
 	const dayMap = new Map();
 	const modelMap = new Map();
-	const sessions = [];
 	const unpriced = new Set();
 	let subagents = 0;
 	let activeSessions = 0;
+	/*
+	 * Every log is billed to the ROOT session that owns it. A subagent's log
+	 * names its parent in the header, so a delegate's tokens and cost land on the
+	 * session that spawned it - the session table then shows real sessions, not
+	 * one row per subagent. A log whose parent is missing keeps its own key and
+	 * is reported as an orphaned subagent instead of disappearing.
+	 */
+	const recordKey = new Map();
+	const recordByKey = new Map();
+	const recordBySessionId = new Map();
+	records.forEach((record, index) => {
+		const key = record.id ?? `anon-${index}`;
+		recordKey.set(record, key);
+		if (!recordByKey.has(key)) recordByKey.set(key, record);
+		if (record.id !== null) recordBySessionId.set(record.id, record);
+	});
+	const rootKeyOf = (record) => {
+		let key = recordKey.get(record);
+		let parentId = record.parentSession;
+		const seen = new Set([key]);
+		while (parentId !== null && parentId !== undefined && !seen.has(parentId)) {
+			seen.add(parentId);
+			const parent = recordBySessionId.get(parentId);
+			if (parent === undefined) break;
+			key = recordKey.get(parent);
+			parentId = parent.parentSession;
+		}
+		return key;
+	};
+	const groups = new Map();
 	for (const record of records) {
-		const modelEntries = Object.values(record.models);
-		const modelsTotal = modelEntries.length;
+		const rootKey = rootKeyOf(record);
+		const rootRecord = recordByKey.get(rootKey) ?? record;
+		let group = groups.get(rootKey);
+		if (group === undefined) {
+			group = {
+				key: rootKey,
+				id: rootRecord.id,
+				title: rootRecord.title,
+				project: rootRecord.cwd === null ? null : rootRecord.cwd.split('/').filter(Boolean).pop() ?? rootRecord.cwd,
+				cwd: rootRecord.cwd,
+				createdAt: rootRecord.createdAt,
+				lastTime: rootRecord.lastTime,
+				turns: 0,
+				subagentCount: 0,
+				// A root that is itself a subagent means its parent log is missing.
+				orphanSubagent: rootRecord.delegationDepth > 0,
+				models: new Map(),
+			};
+			groups.set(rootKey, group);
+		}
+		if (record !== rootRecord) group.subagentCount += 1;
+		group.turns += record.turns;
 		let hasSamples = false;
-		for (const { provider, model, samples } of modelEntries) {
+		for (const { provider, model, samples } of Object.values(record.models)) {
 			if (samples.length === 0) continue;
 			hasSamples = true;
 			const modelKey = `${provider ?? '?'}\u0000${model ?? '?'}`;
@@ -421,20 +481,23 @@ export function aggregate(records, pricing, fx = undefined) {
 				modelRow = { provider, model, buckets: zeroBuckets(), cost: {} };
 				modelMap.set(modelKey, modelRow);
 			}
+			let row = group.models.get(modelKey);
+			if (row === undefined) {
+				row = { provider, model, buckets: zeroBuckets(), cost: {}, lastTime: 0 };
+				group.models.set(modelKey, row);
+			}
 			const entry = pricing[model ?? ''];
 			if (entry === undefined && model != null) unpriced.add(model);
-			const rowBuckets = zeroBuckets();
-			const rowCost = {};
-			let rowLastTime = 0;
 			for (const sample of samples) {
 				addBuckets(totals, sample);
 				addBuckets(modelRow.buckets, sample);
-				addBuckets(rowBuckets, sample);
-				if (sample.t > rowLastTime) rowLastTime = sample.t;
+				addBuckets(row.buckets, sample);
+				if (sample.t > row.lastTime) row.lastTime = sample.t;
+				if (sample.t > group.lastTime) group.lastTime = sample.t;
 				const cost = entry === undefined ? null : sampleCostOf(entry, sample);
 				addCost(totalCost, cost);
 				addCost(modelRow.cost, cost);
-				addCost(rowCost, cost);
+				addCost(row.cost, cost);
 				const day = dayOf(sample.t);
 				let dayRow = dayMap.get(day);
 				if (dayRow === undefined) {
@@ -444,24 +507,31 @@ export function aggregate(records, pricing, fx = undefined) {
 				addBuckets(dayRow.buckets, sample);
 				addCost(dayRow.cost, cost);
 			}
-			sessions.push({
-				sessionId: record.id,
-				title: record.title,
-				project: record.cwd === null ? null : record.cwd.split('/').filter(Boolean).pop() ?? record.cwd,
-				cwd: record.cwd,
-				createdAt: record.createdAt,
-				lastTime: rowLastTime || record.lastTime || record.createdAt,
-				turns: record.turns,
-				provider,
-				model,
-				modelsTotal,
-				...rowBuckets,
-				costByCurrency: rowCost,
-				isSubagent: record.delegationDepth > 0,
-			});
 		}
 		if (record.delegationDepth > 0) subagents += 1;
 		if (hasSamples) activeSessions += 1;
+	}
+	const sessions = [];
+	for (const group of groups.values()) {
+		for (const row of group.models.values()) {
+			sessions.push({
+				sessionId: group.id,
+				sessionKey: group.key,
+				title: group.title,
+				project: group.project,
+				cwd: group.cwd,
+				createdAt: group.createdAt,
+				lastTime: row.lastTime || group.lastTime || group.createdAt,
+				turns: group.turns,
+				provider: row.provider,
+				model: row.model,
+				modelsTotal: group.models.size,
+				subagentCount: group.subagentCount,
+				...row.buckets,
+				costByCurrency: row.cost,
+				isSubagent: group.orphanSubagent,
+			});
+		}
 	}
 	// Ordering value of one cost map: the CNY-equivalent total when a rate is
 	// known (the dashboard reports CNY), else the dominant currency's own total.
@@ -491,10 +561,25 @@ export function aggregate(records, pricing, fx = undefined) {
 			cursor.setDate(cursor.getDate() + 1);
 		}
 	}
+	// Cap by session, never mid-session: a client that re-sorts by time must
+	// still see complete sessions, so rows of one session are kept together and
+	// only whole sessions fall off the end.
+	const sessionTotal = new Set(sessions.map((row) => row.sessionKey)).size;
+	const bySession = [];
+	const keptKeys = new Set();
+	for (const row of sessions) {
+		if (!keptKeys.has(row.sessionKey)) {
+			if (keptKeys.size >= MAX_SESSION_GROUPS) continue;
+			keptKeys.add(row.sessionKey);
+		}
+		bySession.push(row);
+	}
 	const todayCost = dayMap.get(today)?.cost ?? {};
 	return {
 		summary: {
 			sessions: records.length,
+			// Sessions the user actually started; subagent logs are folded into them.
+			rootSessions: sessionTotal,
 			subagents,
 			activeSessions,
 			totals,
@@ -506,8 +591,9 @@ export function aggregate(records, pricing, fx = undefined) {
 		},
 		byDay: byDay.map((row) => ({ date: row.date, ...row.buckets, costByCurrency: row.cost })),
 		byModel,
-		bySession: sessions.slice(0, 200),
-		sessionCount: sessions.length,
+		bySession,
+		sessionCount: bySession.length,
+		sessionTotal,
 		unpricedModels: [...unpriced].sort(),
 	};
 }

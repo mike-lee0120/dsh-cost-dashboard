@@ -46,6 +46,7 @@ window.__ModuleLoader__.load({
 			"card.output": "输出 tokens",
 			"card.sessions": "会话数",
 			"card.sessionsHint": "{n} 个有用量记录",
+			"card.sessionsFoldHint": "{subs} 个子代理会话已并入",
 			unpriced: "未配置价格的模型（仅统计 tokens，不计费用）：{models}。可在下方价格配置中补充。",
 			"chart.title": "每日趋势",
 			"chart.window": "近 {n} 天",
@@ -59,7 +60,10 @@ window.__ModuleLoader__.load({
 			"legend.nonCache": "输入/输出",
 			"table.models": "按模型汇总",
 			"table.sessions": "按会话汇总",
-			"table.sessionsHint": "显示前 {shown} / 共 {total} 条（按费用排序）",
+			"table.sessionsHint": "显示 {shown} / 共 {total} 个会话 · {sort}",
+			"sort.cost": "按费用",
+			"sort.time": "按时间",
+			"sort.hint": "点击切换排序，再次点击反向",
 			"col.model": "模型",
 			"col.provider": "供应商",
 			"col.input": "输入",
@@ -73,6 +77,7 @@ window.__ModuleLoader__.load({
 			"col.models": "模型",
 			"col.time": "时间",
 			subagent: "子代理",
+			foldedSubagents: "含 {n} 个子代理",
 			untitled: "（无标题）",
 			multiModel: "共 {n} 个模型",
 			"pricing.title": "价格配置",
@@ -127,6 +132,7 @@ window.__ModuleLoader__.load({
 			"card.output": "Output tokens",
 			"card.sessions": "Sessions",
 			"card.sessionsHint": "{n} with usage",
+			"card.sessionsFoldHint": "{subs} subagent logs folded in",
 			unpriced: "Models without pricing (tokens counted, cost not): {models}. Add them in the pricing config below.",
 			"chart.title": "Daily trend",
 			"chart.window": "last {n} days",
@@ -140,7 +146,10 @@ window.__ModuleLoader__.load({
 			"legend.nonCache": "input / output",
 			"table.models": "By model",
 			"table.sessions": "By session",
-			"table.sessionsHint": "showing {shown} of {total} rows (by cost)",
+			"table.sessionsHint": "showing {shown} of {total} sessions · {sort}",
+			"sort.cost": "by cost",
+			"sort.time": "by time",
+			"sort.hint": "Click to sort, click again to reverse",
 			"col.model": "Model",
 			"col.provider": "Provider",
 			"col.input": "Input",
@@ -154,6 +163,7 @@ window.__ModuleLoader__.load({
 			"col.models": "Models",
 			"col.time": "When",
 			subagent: "subagent",
+			foldedSubagents: "+{n} subagents",
 			untitled: "(untitled)",
 			multiModel: "{n} models",
 			"pricing.title": "Pricing config",
@@ -217,6 +227,8 @@ window.__ModuleLoader__.load({
 .cd-table{width:100%;border-collapse:collapse;font-size:12.5px}
 .cd-table th{color:var(--dsw-alias-label-tertiary);font-weight:500;text-align:left;padding:7px 10px;white-space:nowrap;font-size:11.5px}
 .cd-table td{padding:7px 10px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);vertical-align:top}
+.cd-sortable{cursor:pointer;user-select:none}
+.cd-sortable:hover{color:var(--dsw-alias-label-primary)}
 .cd-sessionHeader td{background:var(--dsw-alias-fill-l1)}
 .cd-sessionHeaderInner{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .cd-sessionTitle{font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -534,6 +546,8 @@ window.__ModuleLoader__.load({
 			const [loading, setLoading] = useState(true);
 			const [mode, setMode] = useState("cost");
 			const [range, setRange] = useState("7d");
+			const [sortKey, setSortKey] = useState("cost");
+			const [sortDesc, setSortDesc] = useState(true);
 			const [editorOpen, setEditorOpen] = useState(false);
 			const [editorText, setEditorText] = useState("");
 			const [editorStatus, setEditorStatus] = useState(null);
@@ -669,27 +683,53 @@ window.__ModuleLoader__.load({
 			const summary = data?.summary;
 			const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : 90;
 			const rangeLabel = range === "7d" ? t("range.week") : range === "30d" ? t("range.month") : t("range.quarter");
+			/** Click a sortable header: switch the key, or flip direction when it is already active. */
+			const pickSort = (key) => {
+				if (key === sortKey) {
+					setSortDesc((desc) => !desc);
+					return;
+				}
+				setSortKey(key);
+				setSortDesc(true);
+			};
+			const sortArrow = (key) => sortKey !== key ? "" : sortDesc ? " ▾" : " ▴";
 			const chartDays = useMemo(() => padDays(data?.byDay ?? [], rangeDays), [data, rangeDays]);
 			const sessionGroups = useMemo(() => {
 				const groups = new Map();
 				for (const row of data?.bySession ?? []) {
-					let group = groups.get(row.sessionId);
+					// The host keys rows by session, including sessions whose log
+					// header was unreadable; fall back to the id for older hosts.
+					const key = row.sessionKey ?? row.sessionId ?? `${row.createdAt}|${row.cwd}`;
+					let group = groups.get(key);
 					if (group === undefined) {
 						group = {
+							key,
 							sessionId: row.sessionId,
 							title: row.title,
 							project: row.project,
 							isSubagent: row.isSubagent,
+							subagentCount: row.subagentCount ?? 0,
 							modelsTotal: row.modelsTotal,
 							createdAt: row.createdAt,
+							lastTime: row.lastTime ?? row.createdAt ?? 0,
+							costCny: 0,
 							models: [],
 						};
-						groups.set(row.sessionId, group);
+						groups.set(key, group);
 					}
 					group.models.push(row);
+					group.costCny += toCny(row.costByCurrency, fx);
+					const time = row.lastTime ?? row.createdAt ?? 0;
+					if (time > group.lastTime) group.lastTime = time;
 				}
-				return [...groups.values()];
-			}, [data]);
+				const value = sortKey === "time" ? (row) => row.lastTime ?? 0 : (row) => toCny(row.costByCurrency, fx);
+				const groupValue = sortKey === "time" ? (group) => group.lastTime : (group) => group.costCny;
+				const direction = sortDesc ? -1 : 1;
+				for (const group of groups.values()) {
+					group.models.sort((left, right) => direction * (value(right) - value(left)));
+				}
+				return [...groups.values()].sort((left, right) => direction * (groupValue(right) - groupValue(left)));
+			}, [data, fx, sortKey, sortDesc]);
 			const totalTokens = summary
 				? summary.totals.input + summary.totals.cacheRead + summary.totals.cacheWrite + summary.totals.output
 				: 0;
@@ -742,7 +782,7 @@ window.__ModuleLoader__.load({
 						el(Card, { label: t("card.input"), value: fmtTokens(summary.totals.input), hint: t("card.inputHint") }),
 						el(Card, { label: t("card.cacheRead"), value: `${hitRate.toFixed(1)}%`, hint: t("card.cacheReadHint", { hit: fmtTokens(summary.totals.cacheRead), miss: fmtTokens(summary.totals.input) }) }),
 						el(Card, { label: t("card.output"), value: fmtTokens(summary.totals.output) }),
-						el(Card, { label: t("card.sessions"), value: String(summary.sessions), hint: t("card.sessionsHint", { n: summary.activeSessions }) })),
+						el(Card, { label: t("card.sessions"), value: String(summary.rootSessions ?? summary.sessions), hint: summary.subagents > 0 ? t("card.sessionsFoldHint", { subs: summary.subagents }) : t("card.sessionsHint", { n: summary.activeSessions }) })),
 					data.unpricedModels.length > 0 ? el("div", { className: "cd-notice" }, t("unpriced", { models: data.unpricedModels.join(", ") })) : null,
 					el("div", { className: "cd-chartCard" },
 						el("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 } },
@@ -790,7 +830,11 @@ window.__ModuleLoader__.load({
 					el("div", null,
 						el("div", { style: { display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 8px" } },
 							el("span", { className: "cd-sectionTitle" }, t("table.sessions")),
-							el("span", { className: "cd-dim", style: { fontSize: 11 } }, t("table.sessionsHint", { shown: data.bySession.length, total: data.sessionCount }))),
+							el("span", { className: "cd-dim", style: { fontSize: 11 } }, t("table.sessionsHint", {
+								shown: sessionGroups.length,
+								total: data.sessionTotal ?? summary.sessions,
+								sort: t(sortKey === "time" ? "sort.time" : "sort.cost"),
+							}))),
 						el("div", { className: "cd-tableWrap" },
 							el("table", { className: "cd-table" },
 								el("thead", null, el("tr", null,
@@ -799,16 +843,17 @@ window.__ModuleLoader__.load({
 									el("th", { className: "cd-num" }, t("col.input")),
 									el("th", { className: "cd-num" }, t("col.cacheRead")),
 									el("th", { className: "cd-num" }, t("col.output")),
-									el("th", { className: "cd-num" }, t("col.cost")),
-									el("th", null, t("col.time")))),
+									el("th", { className: "cd-num cd-sortable", title: t("sort.hint"), onClick: () => pickSort("cost") }, `${t("col.cost")}${sortArrow("cost")}`),
+									el("th", { className: "cd-sortable", title: t("sort.hint"), onClick: () => pickSort("time") }, `${t("col.time")}${sortArrow("time")}`))),
 								el("tbody", null, sessionGroups.flatMap((group) => [
-									el("tr", { key: `g-${group.sessionId}`, className: "cd-sessionHeader" },
+									el("tr", { key: `g-${group.key}`, className: "cd-sessionHeader" },
 										el("td", { colSpan: 7 },
 											el("div", { className: "cd-sessionHeaderInner" },
 												el("div", { style: { minWidth: 0 } },
 													el("div", { className: "cd-sessionTitle", title: group.title }, group.title ?? t("untitled")),
 													el("div", { className: "cd-sessionMeta" },
-														group.isSubagent ? el("span", { className: "cd-badge" }, t("subagent")) : null,
+														group.subagentCount > 0 ? el("span", { className: "cd-badge" }, t("foldedSubagents", { n: group.subagentCount })) : null,
+												group.isSubagent ? el("span", { className: "cd-badge" }, t("subagent")) : null,
 														el("span", null, group.project ?? ""))),
 												group.modelsTotal > 1 ? el("span", { className: "cd-modelCount" }, t("multiModel", { n: group.modelsTotal })) : null))),
 									...group.models.map((row) => el("tr", { key: `${row.sessionId}-${row.provider}-${row.model}`, className: "cd-modelRow" },

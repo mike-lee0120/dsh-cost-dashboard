@@ -8,10 +8,10 @@ A cost-dashboard plugin for [DeepSeek Harness](https://github.com/deepseek-ai/de
 
 - **Two entry points**: Settings -> Cost Dashboard (the settings nav icons are hardcoded by the dsh settings shell, so plugins cannot customize them), plus a **sidebar footer icon button** (data-grid style) that opens the same dashboard in an anchored panel
 - **CNY only**: every amount is shown in **CNY (¥)**; entries listed in USD (imported catalogs, foreign models) convert at the configurable `fx.cnyPerUsd` rate (default 6.79)
-- **Summary cards**: total cost, today's cost, input (cache-miss) / cache-read rate / output tokens, session count
+- **Summary cards**: total cost, today's cost, input (cache-miss) / cache-read rate / output tokens, and the session count of sessions **you** started (subagent logs are folded in, not counted)
 - **Daily trend chart**: ECharts smooth line charts (gradient area fill and hover tooltips); cost mode is a single CNY series, tokens mode splits into "input / output" and "cache read" charts on independent scales; selectable **1W / 1M / 3M** ranges (default 1W)
 - **By-model table**: tokens, cost, share per model
-- **By-session table**: sorted by cost, **one row per session-model pair** (a session that used several models appears on several rows, each with its own model, tokens and cost), with title, project directory, subagent badge
+- **By-session table**: **one row per session-model pair** (a session that used several models appears on several rows, each with its own model, tokens and cost), with title, project directory, subagent badge for a session that spawned delegates. Sortable by **cost or last-active time** - click the Cost / When header, click again to reverse; the cap is applied per session, so a listed session never loses rows
 - **Pricing editor**: edit the pricing JSON (including the FX rate) in-page; saves to `~/.dsh/cost-dashboard.json`, effective immediately
 - **Auto-synced catalog**: fills in models missing from builtin/overrides from the LiteLLM price JSON (24h TTL + disk cache, degrades on network failure); never overrides builtin or hand-written prices
 - **Actual billing (optional)**: with read-only provider keys configured, shows DeepSeek/OpenRouter real balances and OpenAI/Anthropic real spend next to the estimate; domestic cloud vendors (Volcengine/Alibaba/Tencent) are not integrated - prices come from the config file
@@ -50,6 +50,7 @@ Requires dsh `0.1.0-rc.7`+ and Node >= 22.15 (the `node:zlib` zstd API the host 
   - `assistant/attempt` settlements are billed even when no message followed;
   - four disjoint buckets: uncached input (DeepSeek `prompt_tokens` with cache hits subtracted), cache read, cache write, output. Cache write is still folded and still prices `cacheWrite` rates, but no DeepSeek model produces that bucket, so the dashboard and its tables do not display it.
 - Model attribution: `assistant/message` carries `message.source.provider/model`; a bare usage chunk (failed request) is attributed to the latest `request/header` model.
+- Session attribution: a subagent's log names the session that spawned it in its header (`parentSession`), so its usage is folded into that session - the session table lists real sessions, each marked with how many subagents it absorbed. A log whose parent is missing keeps its own row and is badged as a subagent.
 - Mid-session model switches are split correctly.
 - Run `node scripts/verify-totals.mjs`: it reconciles against the official `session_projcache.json` (a point-in-time snapshot, so newer logs are skipped and said so), folds every selected log with the token meter's semantics, checks that a migrated session resolves to its highest format generation, and pins DeepSeek's official CNY rates plus the Beijing-time weekday peak window (an actively-writing session may drift by a live-write race, which is expected).
 
